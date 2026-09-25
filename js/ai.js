@@ -64,10 +64,11 @@ async function localModel() {
     const { models = [] } = await res.json();
     const names = models.map((m) => m.name);
     for (const want of PREFERRED_LOCAL) {
-      const hit = names.find((n) => n.startsWith(want));
+      // "qwen3:14b" counts as qwen3, but "qwen3-coder:30b" doesn't (it's for code)
+      const hit = names.find((n) => n.startsWith(`${want}:`));
       if (hit) return hit;
     }
-    return names[0] ?? null;
+    return names.find((n) => !/coder|moondream|embed/.test(n)) ?? names[0] ?? null;
   } catch {
     return null; // Ollama isn't running (or this isn't your Mac)
   }
@@ -237,7 +238,8 @@ function claudeMessage(code) {
 // Reads JSON even if the AI wrapped it in ```code fences``` or added a sentence
 function parseJSON(text) {
   if (!text) throw new Error('The AI sent back an empty answer.');
-  const clean = String(text).replace(/```(?:json)?/g, '');
+  // Some models (like qwen3) think out loud in <think> tags first; skip that part
+  const clean = String(text).replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```(?:json)?/g, '');
   try {
     return JSON.parse(clean);
   } catch {
