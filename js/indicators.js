@@ -257,3 +257,133 @@ export function technicalSummary(candles) {
     series: { rsi: r, macd: m },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Risk: how bumpy the ride has been, and how it compares with the S&P 500.
+// `bench` is the daily history of SPY (an ETF that tracks the S&P 500).
+// ---------------------------------------------------------------------------
+
+const RISK_FREE = 4; // % a year you could earn in Treasury bills (used for the Sharpe ratio)
+
+export function riskStats(candles, bench) {
+  if (!candles || candles.length < 60) return null;
+  const closes = candles.map((c) => c.c);
+  const n = closes.length;
+
+  // Drawdown: how far below its previous peak the price is at each point
+  const window = candles.slice(-1260);
+  let peak = window[0].c;
+  let peakT = window[0].t;
+  let maxDd = 0;
+  let maxDdPeakT = peakT;
+  let maxDdTroughT = peakT;
+  const drawdown = window.map((c) => {
+    if (c.c > peak) { peak = c.c; peakT = c.t; }
+    const dd = ((c.c - peak) / peak) * 100;
+    if (dd < maxDd) { maxDd = dd; maxDdPeakT = peakT; maxDdTroughT = c.t; }
+    return dd;
+  });
+  const allTimeHigh = Math.max(...closes);
+
+  // Daily returns for the last year
+  const year = candles.slice(-253);
+  const returns = [];
+  for (let i = 1; i < year.length; i++) returns.push({ t: year[i].t, r: year[i].c / year[i - 1].c - 1 });
+  const mean = returns.reduce((s, x) => s + x.r, 0) / returns.length;
+  const sd = Math.sqrt(returns.reduce((s, x) => s + (x.r - mean) ** 2, 0) / (returns.length - 1));
+  const downside = Math.sqrt(returns.reduce((s, x) => s + Math.min(0, x.r) ** 2, 0) / returns.length);
+  const annualReturn = mean * 252 * 100;
+  const sharpe = sd ? (annualReturn - RISK_FREE) / (sd * Math.sqrt(252) * 100) : null;
+  const sortino = downside ? (annualReturn - RISK_FREE) / (downside * Math.sqrt(252) * 100) : null;
+  const best = returns.reduce((a, b) => (b.r > a.r ? b : a), returns[0]);
+  const worst = returns.reduce((a, b) => (b.r < a.r ? b : a), returns[0]);
+
+  // Compare with the S&P 500 on the days both traded
+  let beta = null;
+  let correlation = null;
+  let benchReturn1y = null;
+  let relative = null;
+  if (bench?.length > 60) {
+    const benchByTime = new Map(bench.map((c) => [c.t, c.c]));
+    const pairs = [];
+    for (let i = n - 252; i < n; i++) {
+      if (i < 1) continue;
+      const b0 = benchByTime.get(candles[i - 1].t);
+      const b1 = benchByTime.get(candles[i].t);
+      if (b0 && b1) pairs.push([candles[i].c / candles[i - 1].c - 1, b1 / b0 - 1]);
+    }
+    if (pairs.length > 40) {
+      const ms = pairs.reduce((s, p) => s + p[0], 0) / pairs.length;
+      const mb = pairs.reduce((s, p) => s + p[1], 0) / pairs.length;
+      let cov = 0;
+      let varB = 0;
+      let varS = 0;
+      for (const [s, b] of pairs) {
+        cov += (s - ms) * (b - mb);
+        varB += (b - mb) ** 2;
+        varS += (s - ms) ** 2;
+      }
+      beta = varB ? cov / varB : null;
+      correlation = varB && varS ? cov / Math.sqrt(varB * varS) : null;
+    }
+    // Both lines start at 100 one year ago, so you can see which did better
+    const start = candles[Math.max(0, n - 253)];
+    const benchStart = benchByTime.get(start.t);
+    if (benchStart) {
+      const stockLine = [];
+      const benchLine = [];
+      for (const c of candles.slice(-253)) {
+        const b = benchByTime.get(c.t);
+        stockLine.push((c.c / start.c) * 100);
+        benchLine.push(b ? (b / benchStart) * 100 : null);
+      }
+      relative = { stock: stockLine, bench: benchLine, times: candles.slice(-253).map((c) => c.t) };
+      const lastBench = benchLine.findLast((v) => v != null);
+      benchReturn1y = lastBench != null ? lastBench - 100 : null;
+    }
+  }
+  const return1y = n > 252 ? (closes[n - 1] / closes[n - 253] - 1) * 100 : null;
+
+  return {
+    drawdown,
+    drawdownTimes: window.map((c) => c.t),
+    maxDrawdown: { value: maxDd, peakT: maxDdPeakT, troughT: maxDdTroughT },
+    fromAllTimeHigh: ((closes[n - 1] - allTimeHigh) / allTimeHigh) * 100,
+    sharpe,
+    sortino,
+    bestDay: { value: best.r * 100, t: best.t },
+    worstDay: { value: worst.r * 100, t: worst.t },
+    upDays: (returns.filter((x) => x.r > 0).length / returns.length) * 100,
+    beta,
+    correlation,
+    return1y,
+    benchReturn1y,
+    relative1y: return1y != null && benchReturn1y != null ? return1y - benchReturn1y : null,
+    relative,
+  };
+}
+
+// Seasonality: the average return in each calendar month across all years we have
+export function seasonality(candles) {
+  if (!candles || candles.length < 300) return null;
+  const monthEnds = new Map(); // "2024-03" -> last close that month
+  for (const c of candles) {
+    const d = new Date(c.t * 1000);
+    monthEnds.set(`${d.getUTCFullYear()}-${d.getUTCMonth()}`, c.c);
+  }
+  const keys = [...monthEnds.keys()];
+  const buckets = Array.from({ length: 12 }, () => []);
+  for (let i = 1; i < keys.length; i++) {
+    const month = Number(keys[i].split('-')[1]);
+    buckets[month].push((monthEnds.get(keys[i]) / monthEnds.get(keys[i - 1]) - 1) * 100);
+  }
+  // The newest month is usually only partly over, so leave it out
+  const current = Number(keys.at(-1).split('-')[1]);
+  buckets[current].pop();
+  return buckets.map((list, month) => ({
+    month,
+    avg: list.length ? list.reduce((a, b) => a + b, 0) / list.length : null,
+    positive: list.filter((v) => v > 0).length,
+    count: list.length,
+  }));
+}

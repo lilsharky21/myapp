@@ -1,11 +1,12 @@
 // GET /api/quote?symbol=AAPL
 // The live price plus the basics about the company.
 
-import { ok, fail, symbolFrom, MINUTE, DAY } from '../lib/http.js';
+import { ok, fail, guard, symbolFrom, MINUTE, DAY } from '../lib/http.js';
 import { finnhub } from '../lib/finnhub.js';
 
 export async function GET(request) {
   try {
+    guard(request);
     const symbol = symbolFrom(request);
     const [quote, profile] = await Promise.all([
       finnhub('/quote', { symbol }, 20_000),

@@ -86,12 +86,26 @@ function cardHTML(idea, k, animateIn) {
         </div>
       </div>
       <p class="thesis${idea.thesis ? '' : ' empty'}">${esc(idea.thesis || 'No thesis yet. Tap to write one.')}</p>
+      ${ratingChips(idea.ratings)}
       <dl class="meta">
         <div><dt>Target</dt><dd>${idea.target != null ? money.format(idea.target) : '<span class="muted">—</span>'}</dd></div>
         <div><dt>Upside</dt><dd>${upsideHTML}</dd></div>
         <div><dt>Added</dt><dd>${shortDate.format(new Date(idea.createdAt))}</dd></div>
       </dl>
     </article>`;
+}
+
+// The three ratings from the last time you opened this stock
+function ratingChips(r) {
+  if (!r || !(r.wallStreet || r.app || r.ai)) return '';
+  const tone = (label) => (/buy/i.test(label) ? 'up' : /sell/i.test(label) ? 'down' : '');
+  const chip = (who, label, extra = '') => (label ? `<span class="rchip"><span class="rchip-who">${who}</span><span class="${tone(label)}">${label}</span>${extra}</span>` : '');
+  return `<div class="card-ratings">
+    ${chip('Street', r.wallStreet)}
+    ${chip('App', r.app?.label, r.app ? ` <span class="rchip-grade">${r.app.grade}</span>` : '')}
+    ${chip('AI', r.ai)}
+    ${r.demo ? '<span class="rchip demo">demo</span>' : ''}
+  </div>`;
 }
 
 function dotsHTML(level) {
@@ -358,7 +372,7 @@ function openStock(idea, { remember = true } = {}) {
   withTransition(() => {
     $('#list-view').hidden = true;
     $('#stock-view').hidden = false;
-    openStockPage($('#stock-view'), idea, { onEdit: (i) => openSheet(i), onBack: goBack });
+    openStockPage($('#stock-view'), idea, { onEdit: (i) => openSheet(i), onBack: goBack, onRated: saveRatings });
     window.scrollTo(0, 0);
   });
   // Let the browser's back button (and swipe-back on iPhone) return to the list
@@ -370,6 +384,14 @@ function openStock(idea, { remember = true } = {}) {
       state.usedHistory = false;
     }
   }
+}
+
+// Remember the latest ratings on the idea (shown on its watchlist card)
+function saveRatings(id, ratings) {
+  const idea = state.ideas.find((i) => i.id === id);
+  if (!idea) return;
+  idea.ratings = ratings;
+  persist();
 }
 
 function closeStock() {

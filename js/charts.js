@@ -182,7 +182,7 @@ export class PriceChart {
 const W = 340;
 
 // Bar chart. values can be negative; the newest bar is drawn strongest.
-export function barChart({ labels, values, format = String, height = 150, tone = 'accent' }) {
+export function barChart({ labels, values, format = String, height = 150, tone = 'accent', highlight }) {
   const top = 20;
   const bottom = 22;
   const n = values.length;
@@ -195,13 +195,14 @@ export function barChart({ labels, values, format = String, height = 150, tone =
   const y = (v) => top + ((max - v) / span) * plotH;
   const slot = W / n;
   const barW = Math.min(28, slot * 0.62);
-  const every = n <= 6 ? 1 : n <= 10 ? 2 : 3;
+  const every = n <= 6 ? 1 : n <= 10 ? 2 : n <= 12 && labels.every((l) => l.length <= 2) ? 1 : 3;
+  const strong = highlight ?? n - 1; // the bar drawn at full strength, with its value on top
 
   let bars = '';
   let text = '';
   values.forEach((v, i) => {
     const x = i * slot + (slot - barW) / 2;
-    const isLast = i === n - 1;
+    const isLast = i === strong;
     if (v != null) {
       const y0 = y(Math.max(v, 0));
       const h = Math.max(1.5, Math.abs(y(v) - y(0)));
@@ -220,7 +221,8 @@ export function barChart({ labels, values, format = String, height = 150, tone =
 }
 
 // Line chart with optional shaded band (used for RSI, MACD, margins)
-export function lineChart({ series, labels = [], height = 120, min, max, band, refs = [], histogram, format = (v) => v.toFixed(0) }) {
+export function lineChart({ series, labels = [], height = 120, min, max, band, refs = [], histogram, format = (v) => v.toFixed(0), area = false }) {
+  if (area) series = series.map((s) => ({ ...s, area: true }));
   const top = 10;
   const bottom = labels.length ? 20 : 6;
   const all = [...series.flatMap((s) => s.values), ...(histogram ?? [])].filter((v) => v != null);
@@ -257,6 +259,12 @@ export function lineChart({ series, labels = [], height = 120, min, max, band, r
       d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
       pen = true;
     });
+    if (s.area && d) {
+      const first = s.values.findIndex((v) => v != null);
+      const last = s.values.findLastIndex((v) => v != null);
+      const base = y(Math.min(hi, Math.max(lo, 0))).toFixed(1);
+      out += `<path class="area ${s.cls ?? ''}" d="${d}L${x(last).toFixed(1)},${base}L${x(first).toFixed(1)},${base}Z"/>`;
+    }
     out += `<path class="line ${s.cls ?? ''}" d="${d}"/>`;
     const lastIndex = s.values.findLastIndex((v) => v != null);
     if (s.dot !== false && lastIndex >= 0) {
@@ -264,11 +272,14 @@ export function lineChart({ series, labels = [], height = 120, min, max, band, r
     }
   }
   if (labels.length) {
-    const every = Math.ceil(labels.length / 6);
+    // Skip labels that would crowd the one before
+    const sparse = labels.filter(Boolean).length < labels.length;
+    const every = sparse ? 1 : Math.ceil(labels.length / 6);
+    let lastX = -Infinity;
     labels.forEach((l, i) => {
-      if ((labels.length - 1 - i) % every === 0) {
-        out += `<text class="axis" x="${x(i).toFixed(1)}" y="${height - 5}" text-anchor="middle">${l}</text>`;
-      }
+      if (!l || (labels.length - 1 - i) % every !== 0 || x(i) - lastX < 34) return;
+      lastX = x(i);
+      out += `<text class="axis" x="${x(i).toFixed(1)}" y="${height - 5}" text-anchor="${i === 0 ? 'start' : 'middle'}">${l}</text>`;
     });
   }
   return `<svg class="mini-chart" viewBox="0 0 ${W} ${height}" role="img">${out}</svg>`;

@@ -39,8 +39,12 @@ createServer(async (req, res) => {
     if (api) {
       const file = join(ROOT, 'api', `${api[1]}.js`);
       if (!existsSync(file)) return send(res, 404, 'text/plain', 'No such API');
-      const { GET } = await import(file);
-      const response = await GET(new Request(url));
+      const handlers = await import(file);
+      const handler = handlers[req.method];
+      if (!handler) return send(res, 405, 'text/plain', 'Method not allowed');
+      const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req);
+      const headers = Object.fromEntries(Object.entries(req.headers).filter(([, v]) => typeof v === 'string'));
+      const response = await handler(new Request(url, { method: req.method, headers, body }));
       res.writeHead(response.status, Object.fromEntries(response.headers));
       return res.end(Buffer.from(await response.arrayBuffer()));
     }
@@ -58,6 +62,15 @@ createServer(async (req, res) => {
     send(res, 500, 'text/plain', 'Server error');
   }
 }).listen(PORT, () => console.log(`Thesis Journal running at http://localhost:${PORT}`));
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
 
 function send(res, status, type, body) {
   res.writeHead(status, { 'Content-Type': type });

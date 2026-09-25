@@ -7,6 +7,7 @@
 //   'live'  -> real data
 //   'demo'  -> made-up numbers (shown with a Demo label)
 //   'error' -> something went wrong (with a message to show)
+//   'locked'-> the app has a passcode and this device doesn't know it yet
 // ==========================================================================
 
 import { demoData } from './demo.js';
@@ -16,11 +17,26 @@ const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 
 const remembered = new Map();
+const PASSCODE_KEY = 'thesis-journal/passcode';
+
+// The passcode (if the app has one) goes with every request
+export function passcodeHeaders() {
+  try {
+    const code = localStorage.getItem(PASSCODE_KEY);
+    return code ? { 'x-passcode': code } : {};
+  } catch {
+    return {};
+  }
+}
+export function savePasscode(code) {
+  try { localStorage.setItem(PASSCODE_KEY, code); } catch { /* blocked storage */ }
+  remembered.clear();
+}
 
 async function request(path) {
   let res;
   try {
-    res = await fetch(path, { headers: { Accept: 'application/json' } });
+    res = await fetch(path, { headers: { Accept: 'application/json', ...passcodeHeaders() } });
   } catch {
     return { status: 'offline' };
   }
@@ -28,6 +44,7 @@ async function request(path) {
   if (!(res.headers.get('content-type') || '').includes('json')) return { status: 'offline' };
   const body = await res.json().catch(() => ({}));
   if (res.status === 503 && body.error === 'not_configured') return { status: 'not_configured', service: body.service };
+  if (res.status === 401 && body.error === 'locked') return { status: 'locked' };
   if (!res.ok) return { status: 'error', message: body.message || 'Something went wrong loading this.' };
   return { status: 'live', data: body };
 }
@@ -44,7 +61,7 @@ function load(kind, symbol, { ttl, extra = '', fresh = false, demo }) {
     return result;
   });
   remembered.set(key, { at: Date.now(), promise });
-  promise.then((r) => r.status === 'error' && remembered.delete(key)); // retry errors next time
+  promise.then((r) => (r.status === 'error' || r.status === 'locked') && remembered.delete(key)); // retry next time
   return promise;
 }
 
@@ -65,3 +82,9 @@ export const getFinancials = (symbol) =>
 
 export const getNews = (symbol) =>
   load('news', symbol, { ttl: 5 * MINUTE, demo: (d) => d.news });
+
+export const getPeers = (symbol) =>
+  load('peers', symbol, { ttl: 6 * HOUR, demo: (d) => d.peers });
+
+// SPY is an ETF that tracks the S&P 500, used as "the market" for comparisons
+export const getBenchmark = () => getDaily('SPY');

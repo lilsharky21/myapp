@@ -5,6 +5,8 @@
 // It never invents people or news: insider trades and headlines stay empty.
 // ==========================================================================
 
+import { deriveRows, ratiosFor, growthFor } from './statement-math.js';
+
 // A tiny random number generator that gives the same sequence for the same seed
 function seeded(text) {
   let h = 2166136261;
@@ -21,7 +23,6 @@ function seeded(text) {
   return { next, between, normal };
 }
 
-const DAY = 86400;
 const cache = new Map();
 
 export function demoData(symbol) {
@@ -158,9 +159,13 @@ function build(symbol) {
   next.setUTCDate(next.getUTCDate() + 20 + Math.floor(rnd.next() * 30));
   while (next.getUTCDay() === 0 || next.getUTCDay() === 6) next.setUTCDate(next.getUTCDate() + 1);
 
+  // P/E ratio at each of the last 8 year-ends (Finnhub calls this the metric "series")
+  const peHistory = lastYearEnds(8).map((period, k) => ({ period, v: round(pe * (0.7 + k * 0.05) * (1 + rnd.normal() * 0.12)) }));
+
   const fundamentals = {
     symbol,
     metrics,
+    metricSeries: { annual: { pe: peHistory.slice().reverse() } },
     recommendations,
     earnings,
     nextEarnings: {
@@ -178,6 +183,22 @@ function build(symbol) {
   const annual = statements(rnd, lastYearEnds(10), annualRevenue, revGrowth / 100, { grossM, opM, netM, shares }, 1);
   const quarterly = statements(rnd, quarterEnds.slice(-12), annualRevenue / 4, revGrowth / 100 / 4, { grossM, opM, netM, shares }, 4);
 
+  // Similar companies, clearly named as demo peers
+  const peers = ['A', 'B', 'C', 'D', 'E'].map((letter) => ({
+    symbol: `PEER ${letter}`,
+    name: `Demo peer ${letter}`,
+    price: rnd.between(30, 400),
+    changePct: rnd.normal() * 1.5,
+    marketCap: quote.marketCap * rnd.between(0.1, 1.4),
+    pe: rnd.between(12, 60),
+    ps: rnd.between(1, 14),
+    pb: rnd.between(1.5, 15),
+    revenueGrowth: rnd.between(-4, 30),
+    grossMargin: rnd.between(25, 75),
+    netMargin: rnd.between(2, 30),
+    roe: rnd.between(5, 40),
+  }));
+
   return {
     quote,
     daily,
@@ -185,6 +206,7 @@ function build(symbol) {
     fundamentals,
     financials: { symbol, source: 'Demo numbers', lines: DEMO_LINES, annual, quarterly },
     news: { symbol, news: [], newsStatus: 'demo', filings: [] },
+    peers: { symbol, peers },
   };
 }
 
@@ -202,43 +224,37 @@ function statements(rnd, ends, latestRevenue, growthPerPeriod, m, lag) {
   rows.costOfRevenue = revenue.map((r, i) => r - rows.grossProfit[i]);
   rows.rnd = revenue.map((r) => r * 0.12 * wobble());
   rows.operatingIncome = revenue.map((r) => (r * m.opM / 100) * wobble());
+  rows.interestExpense = revenue.map((r) => r * 0.008 * wobble());
+  rows.incomeTax = rows.operatingIncome.map((o) => o * 0.16 * wobble());
   rows.sga = rows.grossProfit.map((g, i) => g - rows.operatingIncome[i] - rows.rnd[i]);
   rows.netIncome = revenue.map((r) => (r * m.netM / 100) * wobble());
   rows.shares = revenue.map((_, i) => m.shares * (1 + (n - 1 - i) * 0.006));
   rows.eps = rows.netIncome.map((ni, i) => round(ni / rows.shares[i]));
   rows.cash = revenue.map((r) => r * lag * 0.25 * wobble());
   rows.shortInvestments = revenue.map((r) => r * lag * 0.15 * wobble());
+  rows.receivables = revenue.map((r) => r * (lag === 4 ? 0.5 : 0.12) * wobble());
+  rows.inventory = revenue.map((r) => r * (lag === 4 ? 0.3 : 0.08) * wobble());
   rows.currentAssets = revenue.map((r, i) => (rows.cash[i] + rows.shortInvestments[i]) * 1.8);
   rows.totalAssets = rows.currentAssets.map((c) => c * 2.4);
   rows.currentLiabilities = rows.currentAssets.map((c) => c * 0.55);
   rows.longTermDebt = rows.totalAssets.map((a) => a * 0.18 * wobble());
   rows.totalLiabilities = rows.totalAssets.map((a) => a * 0.48);
   rows.equity = rows.totalAssets.map((a, i) => a - rows.totalLiabilities[i]);
+  rows.retainedEarnings = rows.equity.map((e) => e * 0.7);
   rows.operatingCashFlow = rows.netIncome.map((ni) => ni * 1.25 * wobble());
   rows.capex = revenue.map((r) => r * 0.06 * wobble());
-  rows.freeCashFlow = rows.operatingCashFlow.map((o, i) => o - rows.capex[i]);
+  rows.dna = revenue.map((r) => r * 0.045 * wobble());
   rows.sbc = revenue.map((r) => r * 0.04 * wobble());
-  rows.buybacks = rows.freeCashFlow.map((f) => f * 0.5 * wobble());
+  rows.buybacks = rows.operatingCashFlow.map((o, i) => (o - rows.capex[i]) * 0.5 * wobble());
   rows.dividends = rows.netIncome.map((ni) => ni * 0.15);
 
-  const pct = (a, b) => (a != null && b ? (a / b) * 100 : null);
-  const growth = (arr) => arr.map((v, i) => (i >= lag && arr[i - lag] ? ((v - arr[i - lag]) / Math.abs(arr[i - lag])) * 100 : null));
+  deriveRows(rows, n);
   const quarterly = lag === 4;
   return {
     periods: ends.map((end) => ({ end, label: quarterly ? quarterLabel(end) : `FY${end.slice(0, 4)}` })),
     rows,
-    ratios: {
-      grossMargin: ends.map((_, i) => pct(rows.grossProfit[i], revenue[i])),
-      operatingMargin: ends.map((_, i) => pct(rows.operatingIncome[i], revenue[i])),
-      netMargin: ends.map((_, i) => pct(rows.netIncome[i], revenue[i])),
-      fcfMargin: ends.map((_, i) => pct(rows.freeCashFlow[i], revenue[i])),
-    },
-    growth: {
-      revenue: growth(revenue),
-      netIncome: growth(rows.netIncome),
-      eps: growth(rows.eps),
-      freeCashFlow: growth(rows.freeCashFlow),
-    },
+    ratios: ratiosFor(rows, n, quarterly ? 4 : 1),
+    growth: growthFor(rows, lag),
   };
 }
 
@@ -246,16 +262,18 @@ const DEMO_LINES = {
   income: [
     ['revenue', 'Revenue'], ['costOfRevenue', 'Cost of revenue'], ['grossProfit', 'Gross profit'],
     ['rnd', 'Research & development'], ['sga', 'Selling, general & admin'], ['operatingIncome', 'Operating income'],
+    ['ebitda', 'EBITDA'], ['interestExpense', 'Interest expense'], ['incomeTax', 'Income tax'],
     ['netIncome', 'Net income'], ['eps', 'EPS (diluted)', 'eps'], ['shares', 'Diluted shares', 'shares'],
   ],
   balance: [
-    ['cash', 'Cash & equivalents'], ['shortInvestments', 'Short-term investments'], ['currentAssets', 'Current assets'],
-    ['totalAssets', 'Total assets'], ['currentLiabilities', 'Current liabilities'], ['longTermDebt', 'Long-term debt'],
-    ['totalLiabilities', 'Total liabilities'], ['equity', "Shareholders' equity"],
+    ['cash', 'Cash & equivalents'], ['shortInvestments', 'Short-term investments'], ['receivables', 'Receivables'],
+    ['inventory', 'Inventory'], ['currentAssets', 'Current assets'], ['totalAssets', 'Total assets'],
+    ['currentLiabilities', 'Current liabilities'], ['longTermDebt', 'Long-term debt'], ['totalLiabilities', 'Total liabilities'],
+    ['retainedEarnings', 'Retained earnings'], ['equity', "Shareholders' equity"],
   ],
   cashflow: [
-    ['operatingCashFlow', 'Operating cash flow'], ['capex', 'Capital expenditures'], ['freeCashFlow', 'Free cash flow'],
-    ['sbc', 'Stock-based compensation'], ['buybacks', 'Share buybacks'], ['dividends', 'Dividends paid'],
+    ['operatingCashFlow', 'Operating cash flow'], ['capex', 'Capital expenditures'], ['dna', 'Depreciation & amortization'],
+    ['freeCashFlow', 'Free cash flow'], ['sbc', 'Stock-based compensation'], ['buybacks', 'Share buybacks'], ['dividends', 'Dividends paid'],
   ],
 };
 for (const k of Object.keys(DEMO_LINES)) {

@@ -2,11 +2,12 @@
 // Key stats (valuation, margins, growth), analyst ratings, earnings history,
 // the next earnings date, and insider trades. All from Finnhub.
 
-import { ok, fail, symbolFrom, HOUR, DAY } from '../lib/http.js';
+import { ok, fail, guard, symbolFrom, HOUR, DAY } from '../lib/http.js';
 import { finnhub, isoDay } from '../lib/finnhub.js';
 
 export async function GET(request) {
   try {
+    guard(request);
     const symbol = symbolFrom(request);
     const today = new Date();
     const inDays = (n) => isoDay(new Date(today.getTime() + n * DAY));

@@ -6,8 +6,12 @@
 // ==========================================================================
 
 import assert from 'node:assert/strict';
-import { sma, ema, rsi, macd, bollinger, technicalSummary, performance } from '../js/indicators.js';
+import { sma, ema, rsi, macd, bollinger, technicalSummary, performance, riskStats, seasonality } from '../js/indicators.js';
 import { buildStatements } from '../lib/statements.js';
+import { dcf, impliedGrowth, graham, dcfInputs } from '../js/valuation.js';
+import { scale, grade, appScore, analystConsensus, piotroski, altmanZ, FACTORS } from '../js/ratings.js';
+import { normalize, buildPrompt } from '../js/ai.js';
+import { demoData } from '../js/demo.js';
 
 let passed = 0;
 const failures = [];
@@ -89,6 +93,139 @@ await test('Performance returns are measured from the right day', () => {
   assert.equal(perf.find((p) => p.label === '5Y').value, null);
 });
 
+await test('Risk stats: beta of a stock that moves 2x the market is about 2', () => {
+  const bench = [];
+  const stock = [];
+  let b = 100;
+  let s = 100;
+  for (let i = 0; i < 400; i++) {
+    const r = Math.sin(i * 1.7) * 0.01;
+    b *= 1 + r;
+    s *= 1 + 2 * r;
+    bench.push({ t: i * 86400, c: b });
+    stock.push({ t: i * 86400, c: s, h: s, l: s, o: s, v: 1 });
+  }
+  const risk = riskStats(stock, bench);
+  close(risk.beta, 2, 0.05);
+  close(risk.correlation, 1, 0.01);
+  assert.ok(risk.maxDrawdown.value <= 0);
+  assert.equal(risk.relative.stock.length, 253);
+});
+
+await test('Seasonality averages each calendar month', () => {
+  const candles = [];
+  for (let d = 0; d < 800; d++) candles.push({ t: Date.UTC(2023, 0, 1) / 1000 + d * 86400, c: 100 + d });
+  const s = seasonality(candles);
+  assert.equal(s.length, 12);
+  assert.ok(s.every((m) => m.avg == null || m.avg > 0));
+});
+
+// ---------------------------------------------------------------------------
+console.log('\nValuation');
+
+await test('DCF with no growth equals cash flow ÷ discount rate', () => {
+  // A flat $100 forever at 10% is worth $1,000
+  close(dcf({ fcf: 100, growth: 0, discount: 10, terminal: 0, shares: 1 }).perShare, 1000, 1e-6);
+  close(dcf({ fcf: 100, growth: 0, discount: 10, terminal: 0, shares: 2, netCash: 200 }).perShare, 600, 1e-6);
+});
+
+await test('DCF refuses nonsense inputs', () => {
+  assert.equal(dcf({ fcf: -5, growth: 5, discount: 9, terminal: 2, shares: 1 }), null);
+  assert.equal(dcf({ fcf: 100, growth: 5, discount: 3, terminal: 3, shares: 1 }), null);
+});
+
+await test('Reverse DCF finds the growth the price assumes', () => {
+  const inputs = { fcf: 100, discount: 10, terminal: 0, shares: 1, netCash: 0 };
+  close(impliedGrowth(1000, inputs).value, 0, 0.01);
+  const at12 = dcf({ ...inputs, growth: 12 }).perShare;
+  close(impliedGrowth(at12, inputs).value, 12, 0.01);
+});
+
+await test('Graham number', () => {
+  close(graham(4, 25), Math.sqrt(22.5 * 100));
+  assert.equal(graham(-1, 25), null);
+});
+
+// ---------------------------------------------------------------------------
+console.log('\nRatings');
+
+await test('Scores draw straight lines between points and stay in range', () => {
+  const pts = [[10, 100], [20, 50], [30, 0]];
+  assert.equal(scale(5, pts), 100);
+  assert.equal(scale(15, pts), 75);
+  assert.equal(scale(40, pts), 0);
+  assert.equal(scale(null, pts), null);
+});
+
+await test('Letter grades', () => {
+  assert.equal(grade(95), 'A+');
+  assert.equal(grade(78), 'A−');
+  assert.equal(grade(66), 'B');
+  assert.equal(grade(20), 'F');
+});
+
+await test('Analyst consensus from rating counts', () => {
+  const c = analystConsensus([{ strongBuy: 10, buy: 10, hold: 0, sell: 0, strongSell: 0, period: '2026-09-01' }]);
+  assert.equal(c.label, 'Strong Buy');
+  close(c.score, 1.5);
+  assert.equal(analystConsensus([{ strongBuy: 0, buy: 0, hold: 10, sell: 0, strongSell: 0 }]).label, 'Hold');
+});
+
+await test('App score covers all seven factors on full data', () => {
+  const d = demoData('TEST');
+  const tech = technicalSummary(d.daily);
+  const risk = riskStats(d.daily, demoData('SPY').daily);
+  const val = dcfInputs({ financials: d.financials, metrics: d.fundamentals.metrics, quote: d.quote });
+  const score = appScore({
+    quote: d.quote, metrics: d.fundamentals.metrics, financials: d.financials, tech, risk,
+    earnings: d.fundamentals.earnings, recs: d.fundamentals.recommendations, peers: d.peers.peers,
+    valuation: { ...val, dcf: dcf(val) },
+  });
+  assert.equal(score.factors.length, FACTORS.length);
+  assert.equal(score.coverage, 7); // sentiment still scores from analysts when demo has no insiders
+  assert.ok(score.factors.find((x) => x.key === 'sentiment').score != null);
+  assert.ok(score.overall >= 0 && score.overall <= 100);
+  assert.ok(['Strong Buy', 'Buy', 'Hold', 'Sell', 'Strong Sell'].includes(score.label));
+  for (const factor of score.factors) for (const input of factor.inputs) assert.ok(input.score >= 0 && input.score <= 100, input.label);
+});
+
+await test('App score waits for at least 4 factors', () => {
+  const score = appScore({ metrics: { peTTM: 20 } });
+  assert.equal(score.overall, null);
+  assert.equal(score.label, 'Not enough data');
+});
+
+await test('Piotroski and Altman scores from demo statements', () => {
+  const d = demoData('TEST');
+  const p = piotroski(d.financials.annual);
+  assert.ok(p.score >= 0 && p.score <= 9);
+  assert.equal(p.checks.length, 9);
+  const z = altmanZ(d.financials.annual, d.quote.marketCap);
+  assert.ok(Number.isFinite(z.z));
+  assert.ok(['Safe', 'Grey zone', 'Distress'].includes(z.zone));
+});
+
+// ---------------------------------------------------------------------------
+console.log('\nAI');
+
+await test('AI answers are cleaned up into the expected shape', () => {
+  const r = normalize({ rating: 'buy', confidence: '140', sections: { growth: { view: 'positive', line: 'Fast.' } }, bull: ['a', 'b', 3], thesis: { status: 'weird' } });
+  assert.equal(r.rating, 'Buy');
+  assert.equal(r.confidence, 100);
+  assert.equal(r.sections.growth.view, 'Positive');
+  assert.equal(r.sections.valuation, null);
+  assert.deepEqual(r.bull, ['a', 'b']);
+  assert.equal(r.thesis.status, 'No thesis');
+  assert.equal(normalize({ rating: 'To the moon' }).rating, 'Hold');
+});
+
+await test('The AI prompt carries the data and flags demo numbers', () => {
+  const prompt = buildPrompt({ dataMode: 'demo', ticker: 'XYZ' });
+  assert.match(prompt, /DEMO numbers/);
+  assert.match(prompt, /"ticker":"XYZ"/);
+  assert.doesNotMatch(buildPrompt({ dataMode: 'live' }), /DEMO numbers/);
+});
+
 // ---------------------------------------------------------------------------
 console.log('\nSEC statements');
 
@@ -165,6 +302,13 @@ await test('Per-share numbers are never subtracted', () => {
   assert.equal(q.rows.eps[1], null); // only a 6-month EPS exists, so Q2 stays blank
 });
 
+await test('EBITDA and returns are calculated when the pieces exist', () => {
+  const a = statements.annual;
+  assert.equal(a.rows.ebitda[1], null); // no D&A reported in this sample
+  assert.ok(a.ratios.roe[1] > 0);
+  assert.ok(a.ratios.roic[1] == null); // no operating income in this sample
+});
+
 await test('Free cash flow and total liabilities are calculated', () => {
   const a = statements.annual;
   assert.deepEqual(a.rows.freeCashFlow, [45, 50]);
@@ -201,6 +345,8 @@ const samples = {
       { datetime: '2026-09-24', open: '181', high: '184', low: '180', close: '183', volume: '1200' },
     ],
   },
+  'finnhub.io/api/v1/stock/peers': ['AAPL', 'MSFT', 'GOOGL'],
+  'generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent': { candidates: [{ content: { parts: [{ text: '{"rating":"Buy"}' }] } }] },
   'www.sec.gov/files/company_tickers.json': { 0: { cik_str: 320193, ticker: 'AAPL', title: 'Apple Inc.' }, 1: { cik_str: 1067983, ticker: 'BRK-B', title: 'Berkshire Hathaway' } },
   'data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json': companyFacts,
   'data.sec.gov/submissions/CIK0000320193.json': {
@@ -223,9 +369,9 @@ globalThis.fetch = async (url, options = {}) => {
   if (!body) return new Response('not found', { status: 404 });
   return Response.json(body);
 };
-const call = async (file, query) => {
-  const { GET } = await import(`../api/${file}.js`);
-  const res = await GET(new Request(`http://localhost/api/${file}?${query}`));
+const call = async (file, query, { method = 'GET', body, headers = {} } = {}) => {
+  const handlers = await import(`../api/${file}.js`);
+  const res = await handlers[method](new Request(`http://localhost/api/${file}?${query}`, { method, body, headers }));
   return { status: res.status, body: await res.json(), cache: res.headers.get('cache-control') };
 };
 
@@ -293,6 +439,41 @@ await test('/api/news removes duplicate headlines and explains filings', async (
   assert.equal(res.body.newsStatus, 'live');
   assert.deepEqual(res.body.filings.map((x) => x.form), ['8-K', '4', '10-Q']); // "SD" isn't one we list
   assert.equal(res.body.filings[0].url, 'https://www.sec.gov/Archives/edgar/data/320193/000032019326000090/a8k.htm');
+});
+
+await test('/api/peers lists similar companies, not the stock itself', async () => {
+  const res = await call('peers', 'symbol=AAPL');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.peers.map((p) => p.symbol), ['MSFT', 'GOOGL']);
+  assert.equal(res.body.peers[0].pe, 30.1);
+});
+
+await test('/api/ai reports setup and passes the prompt to Gemini', async () => {
+  delete process.env.GEMINI_API_KEY;
+  assert.equal((await call('ai', '')).body.configured, false);
+  const missing = await call('ai', '', { method: 'POST', body: JSON.stringify({ prompt: 'hi' }) });
+  assert.equal(missing.status, 503);
+  process.env.GEMINI_API_KEY = 'test-key';
+  assert.equal((await call('ai', '')).body.configured, true);
+  const res = await call('ai', '', { method: 'POST', body: JSON.stringify({ prompt: 'Rate this' }) });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.text, '{"rating":"Buy"}');
+  const g = requested.findLast((r) => r.url.host === 'generativelanguage.googleapis.com');
+  assert.equal(g.headers['x-goog-api-key'], 'test-key');
+  const bad = await call('ai', '', { method: 'POST', body: JSON.stringify({ prompt: '' }) });
+  assert.equal(bad.status, 400);
+});
+
+await test('Passcode lock: blocked without it, allowed with it', async () => {
+  process.env.APP_PASSCODE = 'open-sesame';
+  const blocked = await call('quote', 'symbol=AAPL');
+  assert.equal(blocked.status, 401);
+  assert.equal(blocked.body.error, 'locked');
+  const wrong = await call('quote', 'symbol=AAPL', { headers: { 'x-passcode': 'nope' } });
+  assert.equal(wrong.status, 401);
+  const allowed = await call('quote', 'symbol=AAPL', { headers: { 'x-passcode': 'open-sesame' } });
+  assert.equal(allowed.status, 200);
+  delete process.env.APP_PASSCODE;
 });
 
 // ---------------------------------------------------------------------------

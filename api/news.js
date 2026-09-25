@@ -1,12 +1,13 @@
 // GET /api/news?symbol=AAPL
 // Company news from the last 30 days (Finnhub) and recent SEC filings (EDGAR).
 
-import { ok, fail, symbolFrom, MINUTE, DAY } from '../lib/http.js';
+import { ok, fail, guard, symbolFrom, MINUTE, DAY } from '../lib/http.js';
 import { finnhub, isoDay } from '../lib/finnhub.js';
 import { lookupCompany, submissions, recentFilings } from '../lib/sec.js';
 
 export async function GET(request) {
   try {
+    guard(request);
     const symbol = symbolFrom(request);
     const now = Date.now();
 
