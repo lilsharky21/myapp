@@ -28,15 +28,27 @@ export function passcodeHeaders() {
     return {};
   }
 }
+export function savedPasscode() {
+  try { return localStorage.getItem(PASSCODE_KEY) ?? ''; } catch { return ''; }
+}
 export function savePasscode(code) {
   try { localStorage.setItem(PASSCODE_KEY, code); } catch { /* blocked storage */ }
+  remembered.clear();
+}
+
+// Normally data comes from the backend over the internet. The backend itself
+// (api/jobs.js, which prepares research for your Mac) swaps in a fetcher
+// that calls the other API functions directly.
+let fetcher = (path, init) => fetch(path, init);
+export function useFetcher(fn) {
+  fetcher = fn;
   remembered.clear();
 }
 
 async function request(path) {
   let res;
   try {
-    res = await fetch(path, { headers: { Accept: 'application/json', ...passcodeHeaders() } });
+    res = await fetcher(path, { headers: { Accept: 'application/json', ...passcodeHeaders() } });
   } catch {
     return { status: 'offline' };
   }

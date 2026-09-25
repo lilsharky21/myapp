@@ -4,7 +4,7 @@
 import { f, esc, gradeHTML, scoreBar, viewTone, ratingTone, pill } from '../ui.js';
 import { FACTORS, RATING_ORDER } from '../ratings.js';
 import { SECTIONS } from '../ai.js';
-import { setupBoxHTML } from '../ai-setup.js';
+import { setupBoxHTML, askMacHTML } from '../ai-setup.js';
 
 const AI_FOR_FACTOR = { valuation: 'valuation', growth: 'growth', profitability: 'profitability', health: 'health', momentum: 'momentum', earnings: 'earnings', sentiment: 'sentiment' };
 
@@ -36,12 +36,16 @@ function bigThree(ctx) {
     aiBody = `
       <p class="big-rating ${ratingTone(r.rating)}">${r.rating}</p>
       <p class="muted-line">${r.confidence}% confident · ${esc(ai.entry.engine)} · ${f.ago(ai.entry.at)}</p>
-      ${ai.engines?.length === 0 ? '<p class="muted-line">New notes are written on your Mac.</p>' : '<button type="button" class="text-btn small" data-action="run-ai">Run again</button>'}`;
+      ${ai.engines?.length === 0
+        ? (ai.diagnosis?.status === 'not-computer' ? askMacHTML(ai, { fresh: true }) : '<p class="muted-line">New notes are written on your Mac.</p>')
+        : '<button type="button" class="text-btn small" data-action="run-ai">Run again</button>'}`;
   } else if (ai.state === 'running') {
     aiBody = `<p class="big-rating muted"><span class="spinner"></span>Thinking</p><p class="muted-line" data-ai-progress>${esc(ai.progress || 'Reading every tab of data. This can take up to a minute.')}</p>
       <button type="button" class="text-btn small" data-action="stop-ai">Stop</button>`;
   } else if (ai.state === 'unavailable') {
-    aiBody = `<p class="big-rating muted">Not connected</p>${setupBoxHTML(ai)}`;
+    aiBody = ai.diagnosis?.status === 'not-computer'
+      ? `<p class="big-rating muted">${ai.job?.state === 'queued' ? 'Asked your Mac' : 'Not written yet'}</p>${setupBoxHTML(ai)}`
+      : `<p class="big-rating muted">Not connected</p>${setupBoxHTML(ai)}`;
   } else {
     aiBody = `
       ${ai.state === 'error' ? `<p class="error-text">${esc(ai.error)}</p>` : '<p class="muted-line">An AI analyst reads all the data on this page and gives its own rating, section by section.</p>'}

@@ -11,8 +11,8 @@ import {
   checkAlerts, recentAlerts, trackRecord,
 } from './journal.js';
 import { openStockPage, closeStockPage, refreshIdea, selectTab } from './stock.js';
-import { getQuote, getBenchmark, passcodeHeaders } from './api.js';
-import { diagnoseLocalAI, savedResearch } from './ai.js';
+import { getQuote, getBenchmark, passcodeHeaders, savedPasscode } from './api.js';
+import { diagnoseLocalAI, savedResearch, requestNote } from './ai.js';
 import { setupCopyBox } from './ai-setup.js';
 import { macSetupCommand } from './mac-setup.js';
 import { pullJournal, pushJournal } from './sync.js';
@@ -341,11 +341,14 @@ function withTransition(update) {
 
 // ---------- Saving and syncing ----------
 
-function persist() {
+// sync: false saves on this device only (used for ratings, which change on
+// every visit). They travel with the next real change, which keeps the free
+// storage limits comfortable.
+function persist({ sync = true } = {}) {
   const ok = state.canSave && saveIdeas(state.ideas, state.deleted);
   if (!ok) state.sync.status = 'cant-save';
   showSaveStatus();
-  scheduleSync();
+  if (sync) scheduleSync();
 }
 
 function showSaveStatus() {
@@ -794,7 +797,7 @@ function saveRatings(id, ratings) {
   const idea = state.ideas.find((i) => i.id === id);
   if (!idea) return;
   idea.ratings = ratings;
-  persist();
+  persist({ sync: false });
 }
 
 function closeStock() {
@@ -1050,9 +1053,18 @@ async function checkConnections() {
   }).join('')}</ul>
   <button type="button" class="text-btn small" id="conn-again">Check again</button>
   ${status.mac ? `<details class="mac-setup"><summary>Set up Mac AI (one time)</summary>
-    <p class="muted-line">Paste this into Terminal once. After that the AI keeps working, even after restarts.</p>
-    ${setupCopyBox(macSetupCommand([status.productionUrl ? `https://${status.productionUrl}` : null, location.origin]))}
-  </details>` : ''}`;
+    <p class="muted-line">Paste this into Terminal once. After that the AI keeps working, even after restarts, and your iPhone can ask this Mac for research notes.</p>
+    ${setupCopyBox(macSetupCommand(
+      [status.productionUrl ? `https://${status.productionUrl}` : null, location.origin],
+      { app: status.productionUrl ? `https://${status.productionUrl}` : location.origin, passcode: savedPasscode() },
+    ))}
+    <p class="muted-line small-print">The command includes your passcode, so your Mac's helper can use your app. Don't paste it anywhere but Terminal.</p>
+  </details>` : status.notes?.status === 'ok' ? `<div class="batch-box phone-ask">
+    <p class="conn-name">Research your whole watchlist <span class="muted">· on your Mac</span></p>
+    <p class="muted-line">Asks your Mac to write a fresh AI note for each open idea. It works through them while it's awake with Ollama open (about a minute each), and they appear here.</p>
+    <button type="button" class="btn-primary small" id="ask-all">Ask My Mac</button>
+    <p class="muted-line" id="ask-all-msg"></p>
+  </div>` : ''}`;
   $('#batch-box').hidden = status.mac?.status !== 'ok';
   if (status.mac?.status === 'ok') renderBatch();
   if (status.notes?.status === 'ok') syncNow();
@@ -1061,8 +1073,17 @@ async function checkConnections() {
 $('#connections').addEventListener('toggle', (event) => {
   if (event.target.open) checkConnections();
 });
-$('#conn-body').addEventListener('click', (event) => {
+$('#conn-body').addEventListener('click', async (event) => {
   if (event.target.id === 'conn-again') checkConnections();
+  if (event.target.id === 'ask-all') {
+    const tickers = [...new Set(state.ideas.filter((i) => i.status !== 'closed').map((i) => i.ticker))];
+    event.target.disabled = true;
+    const r = await requestNote(tickers);
+    event.target.disabled = false;
+    $('#ask-all-msg').textContent = r.ok
+      ? `Asked for ${tickers.length} note${tickers.length === 1 ? '' : 's'}. Your Mac starts within 5 minutes if it's awake.`
+      : r.message;
+  }
   const copy = event.target.closest('[data-action="copy"]');
   if (copy) {
     navigator.clipboard?.writeText(copy.dataset.copy).then(

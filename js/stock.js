@@ -9,7 +9,7 @@ import * as api from './api.js';
 import * as f from './format.js';
 import { PriceChart } from './charts.js';
 import { analyze, snapshot, researchBundle } from './analysis.js';
-import { findEngines, savedResearch, runResearch, loadSharedNote, diagnoseLocalAI, productionUrl, warmUp } from './ai.js';
+import { findEngines, savedResearch, runResearch, loadSharedNote, diagnoseLocalAI, productionUrl, warmUp, requestNote, jobStatus } from './ai.js';
 import { loadChecks, saveChecks } from './research.js';
 import { dotsHTML, esc } from './ui.js';
 import { overviewTab } from './tabs/overview.js';
@@ -105,6 +105,7 @@ function applyEngines(v, engines) {
       v.ai.diagnosis = diagnosis;
       v.ai.productionUrl = url;
       renderPanel();
+      if (diagnosis.status === 'not-computer') checkMacJobs(v);
     });
   }
 }
@@ -120,6 +121,7 @@ async function recheckAI() {
 export function closeStockPage() {
   if (!view) return;
   clearInterval(view.timer);
+  clearInterval(view.pollTimer);
   view.aiControl?.abort();
   view.chart?.destroy();
   view.observer?.disconnect();
@@ -574,6 +576,7 @@ function wire(root) {
       return;
     }
     if (action === 'run-ai') return runAI();
+    if (action === 'ask-mac') return askMac();
     if (action === 'stop-ai') return view.aiControl?.abort();
     if (action === 'recheck-ai') return recheckAI();
     if (action === 'copy') {
@@ -714,6 +717,53 @@ function askForNotifications() {
   try {
     if ('Notification' in window && Notification.permission === 'default' && navigator.maxTouchPoints === 0) Notification.requestPermission().catch(() => {});
   } catch { /* not supported */ }
+}
+
+// ---------------------------------------------------------------------------
+// On the phone: ask the Mac to write the note, then wait for it
+// ---------------------------------------------------------------------------
+
+// Is a note for this stock already waiting on the Mac? And when did the Mac last write one?
+async function checkMacJobs(v) {
+  const status = await jobStatus();
+  if (view !== v || !status) return;
+  v.ai.macStatus = status;
+  const waiting = status.requests?.find((r) => r.ticker === v.idea.ticker);
+  if (waiting && !v.ai.job) {
+    v.ai.job = { state: 'queued', at: waiting.at };
+    waitForNote(v);
+  }
+  renderPanel();
+}
+
+async function askMac() {
+  const v = view;
+  v.ai.job = { state: 'sending' };
+  renderPanel();
+  const result = await requestNote([v.idea.ticker]);
+  if (view !== v) return;
+  v.ai.job = result.ok ? { state: 'queued', at: Date.now() } : { state: 'error', message: result.message };
+  renderPanel();
+  if (result.ok) waitForNote(v);
+}
+
+// Check for the new note every 30 seconds while this page is open (up to 45 minutes)
+function waitForNote(v) {
+  clearInterval(v.pollTimer);
+  const started = Date.now();
+  v.pollTimer = setInterval(async () => {
+    if (view !== v || Date.now() - started > 45 * 60_000) return clearInterval(v.pollTimer);
+    if (document.visibilityState !== 'visible') return;
+    const shared = await loadSharedNote(v.idea.ticker);
+    if (view !== v || !shared || shared.at < (v.ai.job?.at ?? 0)) return;
+    clearInterval(v.pollTimer);
+    v.ai.entry = shared;
+    v.ai.state = 'done';
+    v.ai.job = null;
+    v.ai.macStatus = { ...v.ai.macStatus, lastNoteAt: shared.at, lastNoteTicker: v.idea.ticker };
+    renderPanel();
+    reportRatings();
+  }, 30_000);
 }
 
 // Did the price just cross one of your alerts? (real prices only)

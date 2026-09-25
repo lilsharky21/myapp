@@ -920,5 +920,109 @@ await test('Treasury yields: parse the CSV, a month-ago comparison, inversion', 
 });
 
 // ---------------------------------------------------------------------------
+console.log('\nPhone asks the Mac');
+
+// Fake private storage shared by the job tests
+const jobFiles = new Map();
+const jobStorage = {
+  put: async (path, body) => { jobFiles.set(path, body); return { pathname: path }; },
+  get: async (path) => (jobFiles.has(path) ? { statusCode: 200, stream: new Response(jobFiles.get(path)).body } : null),
+};
+const jobCall = async (query, { method = 'GET', body, headers = {} } = {}) => {
+  const handlers = await import('../api/jobs.js');
+  const res = await handlers[method](new Request(`http://localhost/api/jobs?${query}`, { method, body, headers }));
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* not JSON (or empty) */ }
+  return { status: res.status, json, text, ticker: res.headers.get('x-job-ticker') };
+};
+
+await test('Phone requests are queued once each, and the status shows them', async () => {
+  const { useStorageForTests } = await import('../api/notes.js');
+  useStorageForTests(jobStorage);
+  jobFiles.clear();
+  process.env.BLOB_READ_WRITE_TOKEN = 'test-token';
+  const first = await jobCall('', { method: 'POST', body: JSON.stringify({ ticker: 'aapl' }) });
+  assert.equal(first.status, 200);
+  await jobCall('', { method: 'POST', body: JSON.stringify({ tickers: ['AAPL', 'MSFT'] }) });
+  const status = await jobCall('');
+  assert.deepEqual(status.json.queued, ['AAPL', 'MSFT']);
+  assert.equal(typeof status.json.requests[0].at, 'number');
+  assert.equal((await jobCall('', { method: 'POST', body: JSON.stringify({ ticker: '../x' }) })).status, 400);
+  process.env.APP_PASSCODE = 'secret';
+  assert.equal((await jobCall('')).status, 401);
+  delete process.env.APP_PASSCODE;
+});
+
+await test("Mac helper gets a ready-to-send Ollama request with the stock's data", async () => {
+  jobFiles.set('journal/ideas.json', JSON.stringify({ ideas: [{ id: 'i-1', ticker: 'AAPL', status: 'watching', thesis: 'Services keep growing', conviction: 4, notes: [] }] }));
+  const job = await jobCall('next=1&model=qwen3:14b');
+  assert.equal(job.status, 200);
+  assert.equal(job.ticker, 'AAPL');
+  const body = job.json;
+  assert.equal(body.model, 'qwen3:14b');
+  assert.equal(body.format, 'json');
+  assert.equal(body.stream, false);
+  assert.equal(body.think, false);
+  const prompt = body.messages[0].content;
+  assert.match(prompt, /AAPL/);
+  assert.match(prompt, /Services keep growing/); // your thesis from the journal
+  assert.match(prompt, /182\.5/);              // the live price from the data
+  assert.equal((await jobCall('next=1&model=bad model!')).status, 400);
+});
+
+await test("Mac helper's answer becomes the note; bad answers are refused", async () => {
+  const note = { rating: 'Buy', confidence: 70, riskLevel: 'Medium', bottomLine: 'A solid business at a fair price.', headline: 'Steady compounding.' };
+  const answer = JSON.stringify({ model: 'qwen3:14b', message: { role: 'assistant', content: JSON.stringify(note) }, done: true });
+  assert.equal((await jobCall('done=AAPL&model=qwen3:14b', { method: 'POST', body: '{"message":{"content":"sorry, no"}}' })).status, 422);
+  const saved = await jobCall('done=AAPL&model=qwen3:14b', { method: 'POST', body: answer });
+  assert.equal(saved.status, 200);
+  const got = await call('notes', 'symbol=AAPL');
+  assert.equal(got.body.entry.result.rating, 'Buy');
+  assert.equal(got.body.entry.engine, 'Your Mac · qwen3:14b');
+  const status = await jobCall('');
+  assert.deepEqual(status.json.queued, ['MSFT']); // AAPL is done
+  assert.equal(status.json.lastNoteTicker, 'AAPL');
+});
+
+await test('Nothing to do -> 204; hourly check refreshes the oldest watchlist note', async () => {
+  const { stalest } = await import('../api/jobs.js');
+  jobFiles.set('jobs/queue.json', JSON.stringify({ requests: [], done: { AAPL: Date.now() } }));
+  assert.equal((await jobCall('next=1')).status, 204);
+  jobFiles.set('journal/ideas.json', JSON.stringify({ ideas: [
+    { id: 'a', ticker: 'AAPL', status: 'own' }, { id: 'b', ticker: 'MSFT', status: 'watching' }, { id: 'c', ticker: 'OLD', status: 'closed' },
+  ] }));
+  const auto = await jobCall('next=1&auto=1');
+  assert.equal(auto.status, 200);
+  assert.equal(auto.ticker, 'MSFT'); // never written; AAPL is fresh; OLD is closed
+  const day = 86_400_000;
+  assert.equal(stalest({ ideas: [{ ticker: 'A', status: 'own' }, { ticker: 'B', status: 'own' }] }, { A: 10 * day, B: 5 * day }, 20 * day), 'B');
+  assert.equal(stalest({ ideas: [{ ticker: 'A', status: 'own' }] }, { A: 19 * day }, 20 * day), null);
+});
+
+await test('A stock that keeps failing is dropped after 3 tries', async () => {
+  jobFiles.set('jobs/queue.json', JSON.stringify({ requests: [{ ticker: 'AAPL', at: 1, tries: 3 }], done: {} }));
+  assert.equal((await jobCall('next=1')).status, 204);
+  assert.deepEqual((await jobCall('')).json.queued, []);
+});
+
+await test('Mac setup with the phone helper: valid bash, passcode quoted safely', async () => {
+  const { macSetupCommand } = await import('../js/mac-setup.js');
+  const { writeFileSync } = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+  const cmd = macSetupCommand(['https://myapp-abc.vercel.app'], { app: 'https://myapp-abc.vercel.app/', passcode: "it's $HOME `x`" });
+  assert.match(cmd, /--app 'https:\/\/myapp-abc\.vercel\.app' --passcode 'it'\\''s \$HOME `x`' <<'THESIS_SETUP'/);
+  assert.match(cmd, /com\.thesisjournal\.worker/);
+  assert.match(cmd, /StartInterval<\/key><integer>300/);
+  // The helper script inside it is valid bash too
+  const worker = cmd.split("<<'WORKER'\n")[1].split('\nWORKER\n')[0];
+  writeFileSync('/tmp/thesis-worker-test.sh', worker);
+  execFileSync('bash', ['-n', '/tmp/thesis-worker-test.sh']);
+  // The shell reads back exactly the passcode that was given
+  const out = execFileSync('bash', ['-c', `set -- ${cmd.split('\n')[0].replace(/^bash -s -- /, '').replace(/ <<'THESIS_SETUP'$/, '')}; echo "$5"`]).toString().trim();
+  assert.equal(out, "it's $HOME `x`");
+});
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

@@ -4,7 +4,7 @@
 
 import { f, esc, pill, viewTone, ratingTone, gradeHTML } from '../ui.js';
 import { SECTIONS, readingMinutes } from '../ai.js';
-import { setupBoxHTML } from '../ai-setup.js';
+import { setupBoxHTML, askMacHTML } from '../ai-setup.js';
 import { sizerHTML } from './sizer.js';
 
 const RISK_TONE = { Low: 'up', Medium: 'neutral', High: 'down', 'Very high': 'down' };
@@ -96,11 +96,14 @@ function bottomLine(ctx, r) {
         </div>
         <div class="bl-meta">
           <span>${readingMinutes(r)} min read · ${esc(e.engine)} · ${f.ago(e.at)}</span>
-          ${ctx.ai.engines?.length === 0 ? '<span>New notes are written on your Mac</span>' : '<button type="button" class="text-btn small" data-action="run-ai">Run again</button>'}
+          ${ctx.ai.engines?.length === 0 ? (onPhone(ctx) ? '' : '<span>New notes are written on your Mac</span>') : '<button type="button" class="text-btn small" data-action="run-ai">Run again</button>'}
         </div>
+        ${onPhone(ctx) ? askMacHTML(ctx.ai, { fresh: true }) : ''}
       </div>
     </section>`;
 }
+
+const onPhone = (ctx) => ctx.ai.diagnosis?.status === 'not-computer';
 
 function compare(who, label, grade) {
   return `<div><span class="rc-label">${who}</span><span class="bl-val"><span class="${label ? ratingTone(label) : 'muted'}">${label ?? '—'}</span>${grade ? gradeHTML(grade) : ''}</span></div>`;

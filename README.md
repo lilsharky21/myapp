@@ -18,7 +18,9 @@ Investors and News.
 - **Your record** (Closed tab): how often you called it, average return vs. the S&P 500, best and worst calls, whether high-conviction ideas did better, and all your lessons.
 - **Interest rates** in Today: US Treasury yields and the yield curve (free, from the Treasury, no key).
 - **On the Mac**: write AI notes for your whole watchlist in one go, and keyboard shortcuts (`/` search, `N` new idea, `D` discover, `1`–`9` tabs, `Esc` back).
-- **On the iPhone**: add it to the Home Screen and it runs full screen and opens offline (see docs/SETUP.md, step 9).
+- **On the iPhone**: add it to the Home Screen and it runs full screen and opens offline (see docs/SETUP.md, step 9). Tap **Ask my Mac** for AI research: a small helper on your Mac writes the note in the background and it appears on your phone.
+
+**New to picking stocks? Read [docs/PLAYBOOK.md](docs/PLAYBOOK.md): the routine this app is built around.**
 
 ## Three ratings for every stock
 
@@ -50,6 +52,8 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | `js/record.js` | "Your record" on the Closed tab |
 | `js/tabs/sizer.js` | The position size calculator |
 | `js/install.js`, `sw.js` | Home Screen tip and offline support |
+| `api/jobs.js` | The Mac's to-do list: notes your phone asked for, prepared for the Mac's AI |
+| `lib/blob.js` | Your private storage (journal, notes, the Mac's to-do list) |
 | `js/stock.js` | The stock page: loads data, works out ratings, runs the AI |
 | `js/tabs/` | One file per tab (overview, journal, research, ratings, technicals, financials, valuation, earnings, investors, news) |
 | `js/ratings.js` | The app score, Piotroski F-Score and Altman Z-Score |

@@ -95,6 +95,10 @@ export function ratingStrip(ctx, { factors = [], ai = null }) {
     aiValue = `<span class="rs-value ${viewTone(section.view)}">${section.view}</span>`;
   } else if (state === 'running') {
     aiValue = '<span class="rs-value muted"><span class="spinner"></span>Thinking</span>';
+  } else if (state === 'unavailable' && ctx.ai.diagnosis?.status === 'not-computer') {
+    aiValue = ctx.ai.job?.state === 'queued'
+      ? '<span class="rs-value muted"><span class="spinner"></span>Asked</span>'
+      : '<button type="button" class="rs-run" data-action="ask-mac">Ask Mac</button>';
   } else if (state === 'unavailable') {
     aiValue = '<button type="button" class="rs-run" data-goto="ratings">Set up</button>';
   } else {

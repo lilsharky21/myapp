@@ -7,23 +7,16 @@
 // by the local AI on your Mac shows up on your phone.
 
 import { fail, guard } from '../lib/http.js';
+import { storage, blobConfigured, markNoteDone } from '../lib/blob.js';
+
+export { storage, useStorageForTests, blobConfigured } from '../lib/blob.js';
+
+const configured = blobConfigured;
 
 const MAX_BYTES = 200_000;
 const TICKER = /^[A-Z0-9.\-:^=]{1,15}$/;
 const noStore = { 'Cache-Control': 'no-store' };
 
-// The storage library, loaded when first needed (tests swap in a fake one)
-let blob = null;
-export const storage = async () => (blob ??= await import('@vercel/blob'));
-export function useStorageForTests(fake) {
-  blob = fake;
-}
-
-// Vercel connects Blob storage in one of two ways, depending on the project:
-// a BLOB_READ_WRITE_TOKEN setting, or a BLOB_STORE_ID setting (the storage
-// library then signs in automatically). Either one means it's set up.
-export const blobConfigured = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
-const configured = blobConfigured;
 const pathFor = (ticker) => `notes/${ticker}.json`;
 
 export async function GET(request) {
@@ -68,6 +61,8 @@ export async function POST(request) {
       allowOverwrite: true,
       contentType: 'application/json',
     });
+    // Let the Mac's automatic refresh know this stock has a fresh note
+    await markNoteDone(ticker, entry.at).catch(() => {});
     return Response.json({ saved: true }, { headers: noStore });
   } catch (err) {
     if (err instanceof SyntaxError) return Response.json({ error: 'bad_request', message: 'Not valid JSON.' }, { status: 400, headers: noStore });

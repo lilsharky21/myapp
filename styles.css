@@ -2113,6 +2113,14 @@ kbd {
 .rec-lessons li { display: grid; gap: 2px; font-family: var(--font-serif); font-size: 16px; line-height: 1.4; }
 .lesson-meta { font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text-2); }
 
+/* ---------- Ask my Mac (phone) ---------- */
+
+.ask-mac .btn-primary { justify-self: start; }
+.ask-mac.compact { display: grid; gap: 2px; margin-top: 8px; }
+.ask-mac.compact .text-btn { justify-self: start; padding-left: 0; }
+.ask-mac.compact .mac-last { margin: 0; }
+.mac-last { font-size: 12px; }
+
 /* ---------- Smooth card moves (browsers that support View Transitions) ---------- */
 
 ::view-transition-group(*) {

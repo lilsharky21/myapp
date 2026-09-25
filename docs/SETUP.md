@@ -58,7 +58,23 @@ account so your iPhone shows them too.
 4. Back in the app, tap **Check again**. It should say **Uses Your Mac · qwen3:14b**.
 
 That's it: no commands to retype after restarts. To undo it, run
-`rm ~/Library/LaunchAgents/com.thesisjournal.ollama.plist`.
+`rm ~/Library/LaunchAgents/com.thesisjournal.*.plist`.
+
+**AI research on your iPhone.** The same command also installs a small helper
+on your Mac. When you tap **Ask my Mac** on your phone, the request waits in your
+app, and every 5 minutes (while the Mac is **on and awake** with Ollama open) the
+helper picks it up, has the AI write the note, and sends it back. It shows on your
+phone within about 5–10 minutes. Once an hour it also refreshes your oldest
+watchlist note by itself, so notes stay current. It stays quiet from 1am to 7am.
+
+- It needs **Sync** turned on (below), because that's how the phone and Mac pass notes.
+- A sleeping Mac can't write notes. With the lid open and plugged in, you can stop
+  it sleeping in **System Settings → Displays → Advanced → Prevent automatic
+  sleeping on power adapter when the display is off** (the wording varies by macOS
+  version). The display can still turn off.
+- If you set up the Mac before this helper existed, paste the command from
+  **Data connections → Set up Mac AI** once more.
+- What the helper did is logged in `~/Library/Application Support/ThesisJournal/worker.log`.
 
 **Speed:** the first note after opening the app takes longer while the model
 loads into memory. The app starts loading it as soon as you open a stock, and

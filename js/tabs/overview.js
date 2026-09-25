@@ -17,6 +17,10 @@ function ratingsCard(ctx) {
     ? `<span class="rc-value ${ratingTone(ai.entry.result.rating)}">${ai.entry.result.rating}</span><span class="rc-sub">${ai.entry.result.confidence}% confident</span>`
     : ai.state === 'running'
       ? '<span class="rc-value muted"><span class="spinner"></span>Thinking</span><span class="rc-sub">Reading the data…</span>'
+      : ai.state === 'unavailable' && ai.diagnosis?.status === 'not-computer'
+        ? (ai.job?.state === 'queued'
+          ? '<span class="rc-value muted"><span class="spinner"></span>Asked</span><span class="rc-sub">Your Mac is on it</span>'
+          : '<span class="rc-value muted">Not written</span><span class="rc-sub"><button type="button" class="rs-run" data-action="ask-mac">Ask my Mac</button></span>')
       : ai.state === 'unavailable'
         ? '<span class="rc-value muted">Not set up</span><span class="rc-sub">See Ratings tab</span>'
         : `<span class="rc-value muted">Not run</span><span class="rc-sub"><button type="button" class="rs-run" data-action="run-ai">${ai.state === 'error' ? 'Retry' : 'Run AI'}</button></span>`;

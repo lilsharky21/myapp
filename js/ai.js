@@ -244,6 +244,39 @@ function shareNote(ticker, entry) {
   }).catch(() => { /* syncing is a bonus; the note is already saved on this device */ });
 }
 
+// ---------------------------------------------------------------------------
+// Asking your Mac from the phone (see api/jobs.js): the Mac helper checks
+// every few minutes and writes the notes you asked for.
+// ---------------------------------------------------------------------------
+
+// Returns { ok, queued } or { ok: false, message }
+export async function requestNote(tickers) {
+  try {
+    const res = await fetch('/api/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...passcodeHeaders() },
+      body: JSON.stringify({ tickers }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 503) return { ok: false, message: 'Turn on Sync first (Data connections), so your Mac and phone can pass notes.' };
+    if (!res.ok) return { ok: false, message: body.message || "Couldn't reach your app. Try again." };
+    return { ok: true, queued: body.queued ?? [] };
+  } catch {
+    return { ok: false, message: "Couldn't reach your app. Check your connection." };
+  }
+}
+
+// { queued: [tickers], lastNoteAt, lastNoteTicker } or null
+export async function jobStatus() {
+  try {
+    const res = await fetch('/api/jobs', { headers: { Accept: 'application/json', ...passcodeHeaders() } });
+    if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 // The latest note saved from any of your devices, or null
 export async function loadSharedNote(ticker) {
   if (typeof window.claude?.use === 'function') return null; // the preview has no backend
@@ -269,7 +302,7 @@ function claudeMessage(code) {
 }
 
 // Reads JSON even if the AI wrapped it in ```code fences``` or added a sentence
-function parseJSON(text) {
+export function parseJSON(text) {
   if (!text) throw new Error('The AI sent back an empty answer.');
   // Some models (like qwen3) think out loud in <think> tags first; skip that part
   const clean = String(text).replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```(?:json)?/g, '');

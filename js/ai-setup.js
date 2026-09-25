@@ -4,7 +4,7 @@
 // exact fix, including the Terminal command with your app's real address.
 // ==========================================================================
 
-import { esc } from './format.js';
+import { esc, ago, time } from './format.js';
 import { browserName } from './ai.js';
 import { macSetupCommand } from './mac-setup.js';
 
@@ -23,14 +23,40 @@ export function setupCopyBox(command) {
     </details>`;
 }
 
+// On the phone: ask the Mac to write the note (the Mac helper picks it up)
+// ai.job: null | { state: 'sending' | 'queued' | 'error', at, message }
+// ai.macStatus: { lastNoteAt, lastNoteTicker } from /api/jobs
+export function askMacHTML(ai, { fresh = false } = {}) {
+  const job = ai.job;
+  const last = ai.macStatus?.lastNoteAt
+    ? `<p class="muted-line mac-last">Your Mac last wrote a note ${ago(ai.macStatus.lastNoteAt)}${ai.macStatus.lastNoteTicker ? ` (${esc(ai.macStatus.lastNoteTicker)})` : ''}.</p>`
+    : '';
+  if (job?.state === 'queued') {
+    return `<div class="setup-help ask-mac">
+      <p class="setup-title"><span class="spinner"></span>Asked your Mac at ${time(job.at)}</p>
+      <p class="muted-line">It writes the note within about 5–10 minutes if it's on and awake with Ollama open. This page shows it by itself when it arrives, and it'll be here later too.</p>
+      ${last}
+    </div>`;
+  }
+  if (fresh) {
+    return `<div class="ask-mac compact">
+      ${job?.state === 'error' ? `<p class="error-text">${esc(job.message)}</p>` : ''}
+      <button type="button" class="text-btn small" data-action="ask-mac"${job?.state === 'sending' ? ' disabled' : ''}>${job?.state === 'sending' ? 'Asking…' : 'Ask my Mac for a fresh one'}</button>
+      ${last}
+    </div>`;
+  }
+  return `<div class="setup-help ask-mac">
+    ${job?.state === 'error' ? `<p class="error-text">${esc(job.message)}</p>` : ''}
+    <button type="button" class="btn-primary" data-action="ask-mac"${job?.state === 'sending' ? ' disabled' : ''}>${job?.state === 'sending' ? 'Asking…' : 'Ask my Mac to write it'}</button>
+    <p class="muted-line">The AI runs on your Mac. It picks up requests every 5 minutes while it's awake and Ollama is open. (One-time setup on the Mac: Data connections → <strong>Set up Mac AI</strong>.)</p>
+    ${last}
+  </div>`;
+}
+
 // ai: the page's AI state ({ diagnosis, productionUrl })
 export function setupBoxHTML(ai) {
   const d = ai.diagnosis;
-  if (d?.status === 'not-computer') {
-    return `<div class="setup-help">
-      <p class="muted-line">The AI runs on your Mac, not your phone. Open this stock in the app on your Mac and tap <strong>Write my research note</strong>. With note sync on, it appears here too.</p>
-    </div>`;
-  }
+  if (d?.status === 'not-computer') return askMacHTML(ai);
   if (!d) {
     return '<div class="setup-help"><p class="muted-line"><span class="spinner"></span>Checking the AI on your Mac…</p></div>';
   }
