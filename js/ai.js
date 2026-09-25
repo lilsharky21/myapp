@@ -36,8 +36,10 @@ export const SECTIONS = [
 
 let enginesPromise = null;
 
-// Returns the available engines, best first: [{ id, label }]
-export function findEngines() {
+// Returns the available engines, best first: [{ id, label }].
+// Remembers the answer; { fresh: true } checks again (after you fix a setting).
+export function findEngines({ fresh = false } = {}) {
+  if (fresh) enginesPromise = null;
   enginesPromise ??= (async () => {
     const inClaude = typeof window.claude?.use === 'function';
     // Local AI only runs on a computer, so phones and tablets skip that check
@@ -71,14 +73,62 @@ async function localModel() {
   }
 }
 
+let siteInfo = null; // { productionUrl } from the backend, once known
+
 async function cloudStatus() {
   try {
     const res = await fetch('/api/ai', { headers: { Accept: 'application/json', ...passcodeHeaders() } });
     if (!(res.headers.get('content-type') || '').includes('json')) return null;
-    return await res.json();
+    const body = await res.json();
+    siteInfo = body;
+    return body;
   } catch {
     return null;
   }
+}
+
+// The app's permanent address, like https://myapp-abc.vercel.app (null if unknown)
+export async function productionUrl() {
+  if (!siteInfo) await cloudStatus();
+  return siteInfo?.productionUrl ? `https://${siteInfo.productionUrl}` : null;
+}
+
+// ---------------------------------------------------------------------------
+// Why isn't the Mac's AI connecting? Works out which problem it is.
+//   'ok'          Ollama answered and has models
+//   'no-model'    Ollama answered but no model is downloaded
+//   'origin'      Ollama is running but refuses this app's address
+//   'unreachable' nothing answered: Ollama is closed, or the browser blocked it
+//   'not-computer' phones and tablets can't run it
+// ---------------------------------------------------------------------------
+
+export async function diagnoseLocalAI() {
+  if (navigator.maxTouchPoints > 0) return { status: 'not-computer' };
+  try {
+    const res = await fetch(`${OLLAMA}/api/tags`, { signal: AbortSignal.timeout(2500) });
+    if (res.status === 403) return { status: 'origin' };
+    const { models = [] } = await res.json();
+    const names = models.map((m) => m.name);
+    return names.length ? { status: 'ok', models: names } : { status: 'no-model' };
+  } catch {
+    // A "no-cors" request still gets through when Ollama is up but refuses this
+    // address. If even that fails, Ollama is closed or the browser blocked it.
+    try {
+      await fetch(`${OLLAMA}/api/tags`, { mode: 'no-cors', signal: AbortSignal.timeout(2500) });
+      return { status: 'origin' };
+    } catch {
+      return { status: 'unreachable' };
+    }
+  }
+}
+
+export function browserName() {
+  const ua = navigator.userAgent;
+  if (/Edg\//.test(ua)) return 'Edge';
+  if (/Chrome|Chromium|CriOS/.test(ua)) return 'Chrome';
+  if (/Firefox/.test(ua)) return 'Firefox';
+  if (/Safari/.test(ua)) return 'Safari';
+  return 'your browser';
 }
 
 // ---------------------------------------------------------------------------

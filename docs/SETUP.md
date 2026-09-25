@@ -55,12 +55,30 @@ account so your iPhone shows them too.
    ```
    This downloads the AI model (about 9 GB). Any model works; this one is a good
    balance of smart and fast on an M5 Pro.
-3. Let your app talk to it. Replace the address with **your** Vercel address:
+3. Find your app's **permanent** address: in Vercel, open your project → **Domains**.
+   It looks like `myapp-abc123.vercel.app`. (Addresses with an extra random part,
+   like `myapp-j2mdsvxdt-yourname.vercel.app`, belong to one single deploy and change
+   every time. Don't use those.)
+4. Let your app talk to Ollama, using that permanent address:
    ```
    launchctl setenv OLLAMA_ORIGINS "https://myapp-abc123.vercel.app"
    ```
-4. Quit Ollama from the menu-bar icon and open it again.
-5. In the app on your Mac, open a stock → **Research** → **Write my research note**.
+5. Quit Ollama from the menu-bar icon and open it again.
+6. Open the app **at the permanent address** on your Mac, then open a stock →
+   **Research** → **Write my research note**.
+
+**If it says the AI isn't connected,** the box under the AI rating (Ratings tab)
+says exactly what's wrong and gives the command with your address filled in, plus a
+**Check again** button. You can also check from Terminal:
+```
+curl -i http://localhost:11434/api/tags -H "Origin: https://myapp-abc123.vercel.app"
+```
+`200 OK` means Ollama is fine (so the browser is blocking it; try Chrome and allow
+local network access). `403` means Ollama didn't pick up the address (quit and
+reopen it). "Connection refused" means Ollama isn't open.
+
+**After restarting your Mac**, run the `launchctl` command again and reopen Ollama.
+The setting doesn't survive a restart.
 
 **Note sync, so the phone shows the Mac's research (about 2 minutes):**
 1. In Vercel, open your project → **Storage** → **Create** → **Blob**.

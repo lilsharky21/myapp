@@ -15,7 +15,13 @@ export async function GET(request) {
   try {
     guard(request);
     return Response.json(
-      { configured: Boolean(process.env.GEMINI_API_KEY), provider: 'Gemini', model: model() },
+      {
+        configured: Boolean(process.env.GEMINI_API_KEY),
+        provider: 'Gemini',
+        model: model(),
+        // The app's permanent address (Vercel sets this), used in setup instructions
+        productionUrl: process.env.VERCEL_PROJECT_PRODUCTION_URL || null,
+      },
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (err) {

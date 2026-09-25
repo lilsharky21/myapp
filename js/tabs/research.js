@@ -4,6 +4,7 @@
 
 import { f, esc, pill, viewTone, ratingTone, gradeHTML } from '../ui.js';
 import { SECTIONS, readingMinutes } from '../ai.js';
+import { setupBoxHTML } from '../ai-setup.js';
 
 const RISK_TONE = { Low: 'up', Medium: 'neutral', High: 'down', 'Very high': 'down' };
 const THESIS_TONE = { Intact: 'up', Weakening: 'neutral', Broken: 'down' };
@@ -40,7 +41,7 @@ function startCard(ctx) {
       <p class="muted-line" data-ai-progress>${esc(ai.progress)}</p>
       <button type="button" class="text-btn small" data-action="stop-ai">Stop</button>`;
   } else if (ai.state === 'unavailable') {
-    action = '<p class="muted-line">Research notes are written by the AI on your Mac. Open this stock in the app on your Mac and tap <strong>Write my research note</strong>, and it shows up here too.</p><button type="button" class="text-btn small" data-goto="ratings">How to set up the Mac</button>';
+    action = setupBoxHTML(ai);
   } else {
     action = `
       ${ai.state === 'error' ? `<p class="error-text">${esc(ai.error)}</p>` : ''}

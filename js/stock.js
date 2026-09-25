@@ -11,7 +11,7 @@ import { technicalSummary, riskStats, seasonality } from './indicators.js';
 import { PriceChart } from './charts.js';
 import { appScore, analystConsensus, piotroski, altmanZ, median } from './ratings.js';
 import { dcf, dcfInputs, impliedGrowth } from './valuation.js';
-import { findEngines, savedResearch, runResearch, loadSharedNote } from './ai.js';
+import { findEngines, savedResearch, runResearch, loadSharedNote, diagnoseLocalAI, productionUrl } from './ai.js';
 import { scenarios, priceLevels, loadChecks, saveChecks } from './research.js';
 import { dotsHTML, esc, pick } from './ui.js';
 import { CONVICTION_WORDS } from './journal.js';
@@ -85,12 +85,31 @@ export function openStockPage(root, idea, { onEdit, onBack, onRated }) {
     renderPanel();
     if (!anyLoading()) reportRatings();
   });
-  findEngines().then((engines) => {
-    if (view !== v) return;
-    v.ai.engines = engines;
-    if (!engines.length && v.ai.state === 'idle') v.ai.state = 'unavailable';
-    renderPanel();
-  });
+  findEngines().then((engines) => applyEngines(v, engines));
+}
+
+// After looking for an AI: use it, or work out why the Mac's AI isn't connecting
+function applyEngines(v, engines) {
+  if (view !== v) return;
+  v.ai.engines = engines;
+  if (engines.length && v.ai.state === 'unavailable') v.ai.state = 'idle';
+  if (!engines.length && v.ai.state === 'idle') v.ai.state = 'unavailable';
+  renderPanel();
+  if (!engines.length) {
+    Promise.all([diagnoseLocalAI(), productionUrl()]).then(([diagnosis, url]) => {
+      if (view !== v) return;
+      v.ai.diagnosis = diagnosis;
+      v.ai.productionUrl = url;
+      renderPanel();
+    });
+  }
+}
+
+async function recheckAI() {
+  const v = view;
+  v.ai.diagnosis = null;
+  renderPanel();
+  applyEngines(v, await findEngines({ fresh: true }));
 }
 
 export function closeStockPage() {
@@ -625,6 +644,15 @@ function wire(root) {
     if (action === 'edit') return view.onEdit(view.idea);
     if (action === 'run-ai') return runAI();
     if (action === 'stop-ai') return view.aiControl?.abort();
+    if (action === 'recheck-ai') return recheckAI();
+    if (action === 'copy') {
+      const text = el.dataset.copy;
+      navigator.clipboard?.writeText(text).then(
+        () => { el.textContent = 'Copied'; setTimeout(() => (el.textContent = 'Copy'), 1500); },
+        () => { el.textContent = 'Select and copy'; },
+      );
+      return;
+    }
     if (action === 'dcf-reset') {
       const val = view.derived.val;
       if (val) view.dcf = { growth: val.growth, discount: val.discount, terminal: val.terminal };

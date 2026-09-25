@@ -33,6 +33,7 @@ export async function GET(request) {
       sec,
       gemini,
       notes,
+      productionUrl: process.env.VERCEL_PROJECT_PRODUCTION_URL || null,
       passcode: process.env.APP_PASSCODE ? { status: 'ok' } : { status: 'optional', message: 'No passcode set. Anyone with your link could use your free limits.' },
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {

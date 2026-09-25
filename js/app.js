@@ -7,6 +7,7 @@
 import { loadIdeas, saveIdeas, createIdea, parsePrice, CONVICTION_WORDS } from './journal.js';
 import { openStockPage, closeStockPage, refreshIdea } from './stock.js';
 import { getQuote, passcodeHeaders } from './api.js';
+import { diagnoseLocalAI } from './ai.js';
 import * as f from './format.js';
 
 // Shortcut: $('#list') finds the element with id="list"
@@ -424,6 +425,7 @@ const SERVICES = [
   ['finnhub', 'Finnhub', 'Prices, stats, analysts, earnings, insiders, news'],
   ['twelvedata', 'Twelve Data', 'Charts and technicals'],
   ['sec', 'SEC EDGAR', 'Financial statements and filings'],
+  ['mac', 'Mac AI (Ollama)', 'Writes the research notes'],
   ['notes', 'Note sync', 'Research from your Mac, on your phone'],
   ['gemini', 'Gemini', 'Optional cloud AI (18+)'],
   ['passcode', 'Passcode', 'Keeps strangers out'],
@@ -443,12 +445,23 @@ async function checkConnections() {
     return;
   }
   const status = await res.json().catch(() => ({}));
+  // On a computer, also check the AI running on this Mac
+  if (navigator.maxTouchPoints === 0) {
+    const d = await diagnoseLocalAI();
+    status.mac = {
+      ok: { status: 'ok' },
+      'no-model': { status: 'missing', message: 'Ollama is running but has no model. In Terminal: ollama pull qwen3:14b' },
+      origin: { status: 'rejected', message: "Ollama doesn't accept this app's address yet. Open any stock → Ratings for the exact fix." },
+      unreachable: { status: 'error', message: 'Not answering. Is Ollama open? Open any stock → Ratings for step-by-step help.' },
+    }[d.status];
+  }
   if (status.error === 'locked') {
     body.innerHTML = '<p class="muted-line">Open any stock and enter your passcode first, then check again.</p>';
     return;
   }
   const icon = { ok: '✓', missing: '○', optional: '○', rejected: '✗', error: '!' };
   body.innerHTML = `<ul class="conn-list">${SERVICES.map(([key, name, what]) => {
+    if (key === 'mac' && !status.mac) return ''; // phones don't run the AI
     const s = status[key] ?? { status: 'error', message: 'No answer.' };
     return `<li class="conn ${s.status}"><span class="conn-icon">${icon[s.status] ?? '!'}</span>
       <div><p class="conn-name">${name} <span class="muted">· ${what}</span></p>

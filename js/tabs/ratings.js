@@ -4,6 +4,7 @@
 import { f, esc, gradeHTML, scoreBar, viewTone, ratingTone, pill } from '../ui.js';
 import { FACTORS, RATING_ORDER } from '../ratings.js';
 import { SECTIONS } from '../ai.js';
+import { setupBoxHTML } from '../ai-setup.js';
 
 const AI_FOR_FACTOR = { valuation: 'valuation', growth: 'growth', profitability: 'profitability', health: 'health', momentum: 'momentum', earnings: 'earnings', sentiment: 'sentiment' };
 
@@ -40,7 +41,7 @@ function bigThree(ctx) {
     aiBody = `<p class="big-rating muted"><span class="spinner"></span>Thinking</p><p class="muted-line" data-ai-progress>${esc(ai.progress || 'Reading every tab of data. This can take up to a minute.')}</p>
       <button type="button" class="text-btn small" data-action="stop-ai">Stop</button>`;
   } else if (ai.state === 'unavailable') {
-    aiBody = `<p class="big-rating muted">Not set up</p>${setupHelp()}`;
+    aiBody = `<p class="big-rating muted">Not connected</p>${setupBoxHTML(ai)}`;
   } else {
     aiBody = `
       ${ai.state === 'error' ? `<p class="error-text">${esc(ai.error)}</p>` : '<p class="muted-line">An AI analyst reads all the data on this page and gives its own rating, section by section.</p>'}
@@ -56,15 +57,6 @@ function bigThree(ctx) {
         <div class="card-plain rating-col"><p class="stat-label">AI analyst</p>${aiBody}</div>
       </div>
     </section>`;
-}
-
-function setupHelp() {
-  // Only this app's own address is allowed to talk to Ollama, not every website
-  const origin = location.protocol.startsWith('http') && !location.hostname.endsWith('claude.ai') ? location.origin : 'https://YOUR-APP.vercel.app';
-  return `<div class="setup-help">
-    <p class="muted-line"><strong>On your Mac:</strong> install Ollama from ollama.com, then in Terminal run <code>ollama pull qwen3:14b</code>. Let this app talk to it with <code>launchctl setenv OLLAMA_ORIGINS "${esc(origin)}"</code> and restart Ollama.</p>
-    <p class="muted-line"><strong>On your phone:</strong> notes written on your Mac show up here automatically once note sync is on (Vercel → Storage → Blob). Full steps: docs/SETUP.md.</p>
-  </div>`;
 }
 
 // One line on whether the three agree

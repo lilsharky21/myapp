@@ -594,6 +594,25 @@ await test('/api/status: note sync checked, Gemini optional when missing', async
   assert.match(off.body.notes.message, /Blob/);
 });
 
+await test('Mac AI diagnosis tells the problems apart', async () => {
+  const { diagnoseLocalAI } = await import('../js/ai.js');
+  const realFetch = globalThis.fetch;
+  const run = async (impl) => { globalThis.fetch = impl; try { return await diagnoseLocalAI(); } finally { globalThis.fetch = realFetch; } };
+  assert.deepEqual(await run(async () => Response.json({ models: [{ name: 'qwen3:14b' }] })), { status: 'ok', models: ['qwen3:14b'] });
+  assert.equal((await run(async () => Response.json({ models: [] }))).status, 'no-model');
+  assert.equal((await run(async () => new Response('', { status: 403 }))).status, 'origin');
+  // Browser blocks the normal request (address refused), but a no-cors one gets through
+  assert.equal((await run(async (url, opts) => { if (opts?.mode === 'no-cors') return new Response(null); throw new TypeError('Failed to fetch'); })).status, 'origin');
+  assert.equal((await run(async () => { throw new TypeError('Failed to fetch'); })).status, 'unreachable');
+});
+
+await test('/api/ai and /api/status share the permanent app address', async () => {
+  process.env.VERCEL_PROJECT_PRODUCTION_URL = 'myapp-abc.vercel.app';
+  assert.equal((await call('ai', '')).body.productionUrl, 'myapp-abc.vercel.app');
+  assert.equal((await call('status', '')).body.productionUrl, 'myapp-abc.vercel.app');
+  delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+});
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
