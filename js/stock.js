@@ -11,7 +11,7 @@ import { technicalSummary, riskStats, seasonality } from './indicators.js';
 import { PriceChart } from './charts.js';
 import { appScore, analystConsensus, piotroski, altmanZ, median } from './ratings.js';
 import { dcf, dcfInputs, impliedGrowth } from './valuation.js';
-import { findEngines, savedResearch, runResearch, loadSharedNote, diagnoseLocalAI, productionUrl } from './ai.js';
+import { findEngines, savedResearch, runResearch, loadSharedNote, diagnoseLocalAI, productionUrl, warmUp } from './ai.js';
 import { scenarios, priceLevels, loadChecks, saveChecks } from './research.js';
 import { dotsHTML, esc, pick } from './ui.js';
 import { CONVICTION_WORDS } from './journal.js';
@@ -86,6 +86,7 @@ export function openStockPage(root, idea, { onEdit, onBack, onRated }) {
     if (!anyLoading()) reportRatings();
   });
   findEngines().then((engines) => applyEngines(v, engines));
+  warmUp();
 }
 
 // After looking for an AI: use it, or work out why the Mac's AI isn't connecting
@@ -110,6 +111,7 @@ async function recheckAI() {
   v.ai.diagnosis = null;
   renderPanel();
   applyEngines(v, await findEngines({ fresh: true }));
+  warmUp();
 }
 
 export function closeStockPage() {
@@ -292,7 +294,9 @@ async function runAI() {
       signal: v.aiControl.signal,
       onProgress: (chars) => {
         if (view !== v) return;
-        v.ai.progress = `Writing the research note… ${chars.toLocaleString()} characters`;
+        // A full note is roughly 7,000 characters
+        const pct = Math.min(99, Math.round((chars / 7000) * 100));
+        v.ai.progress = `Writing the research note… ${pct}%`;
         updateAiProgress();
       },
     });

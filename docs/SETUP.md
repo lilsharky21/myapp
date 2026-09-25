@@ -46,39 +46,22 @@ The AI runs on your MacBook with **Ollama**: free software, no account needed,
 and private (nothing leaves your Mac). Notes it writes are saved to your Vercel
 account so your iPhone shows them too.
 
-**On the Mac (about 10 minutes, mostly download time):**
-1. Go to **ollama.com**, download Ollama for macOS, and open it. A llama icon
-   appears in the menu bar.
-2. Open **Terminal** (press ⌘ Space, type Terminal) and run:
-   ```
-   ollama pull qwen3:14b
-   ```
-   This downloads the AI model (about 9 GB). Any model works; this one is a good
-   balance of smart and fast on an M5 Pro.
-3. Find your app's **permanent** address: in Vercel, open your project → **Domains**.
-   It looks like `myapp-abc123.vercel.app`. (Addresses with an extra random part,
-   like `myapp-j2mdsvxdt-yourname.vercel.app`, belong to one single deploy and change
-   every time. Don't use those.)
-4. Let your app talk to Ollama, using that permanent address:
-   ```
-   launchctl setenv OLLAMA_ORIGINS "https://myapp-abc123.vercel.app"
-   ```
-5. Quit Ollama from the menu-bar icon and open it again.
-6. Open the app **at the permanent address** on your Mac, then open a stock →
-   **Research** → **Write my research note**.
+**On the Mac (one time, about 10 minutes, mostly download time):**
+1. Go to **ollama.com**, download Ollama for macOS, and open it once.
+2. Open your app on the Mac → any stock → **Ratings**. The AI box shows a
+   one-line setup command with your app's address already filled in. Tap **Copy**.
+3. Open **Terminal** (⌘ Space, type Terminal), paste, and press Return. It:
+   - allows your app to talk to Ollama, and keeps allowing it after restarts
+   - downloads the qwen3:14b model if you don't have it (about 9 GB)
+   - restarts Ollama
+4. Back in the app, tap **Check again**. It should say **Uses Your Mac · qwen3:14b**.
 
-**If it says the AI isn't connected,** the box under the AI rating (Ratings tab)
-says exactly what's wrong and gives the command with your address filled in, plus a
-**Check again** button. You can also check from Terminal:
-```
-curl -i http://localhost:11434/api/tags -H "Origin: https://myapp-abc123.vercel.app"
-```
-`200 OK` means Ollama is fine (so the browser is blocking it; try Chrome and allow
-local network access). `403` means Ollama didn't pick up the address (quit and
-reopen it). "Connection refused" means Ollama isn't open.
+That's it: no commands to retype after restarts. To undo it, run
+`rm ~/Library/LaunchAgents/com.thesisjournal.ollama.plist`.
 
-**After restarting your Mac**, run the `launchctl` command again and reopen Ollama.
-The setting doesn't survive a restart.
+**Speed:** the first note after opening the app takes longer while the model
+loads into memory. The app starts loading it as soon as you open a stock, and
+keeps it loaded for 30 minutes.
 
 **Note sync, so the phone shows the Mac's research (about 2 minutes):**
 1. In Vercel, open your project → **Storage** → **Create** → **Blob**.

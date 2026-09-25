@@ -132,6 +132,17 @@ export function browserName() {
   return 'your browser';
 }
 
+// Load the Mac's model into memory ahead of time (when you open a stock), so
+// the note starts writing right away instead of waiting 10-20 s to load.
+export async function warmUp() {
+  const engines = await findEngines();
+  if (engines[0]?.id !== 'local') return;
+  fetch(`${OLLAMA}/api/generate`, {
+    method: 'POST',
+    body: JSON.stringify({ model: engines[0].model, keep_alive: '30m' }),
+  }).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // Remembering results (one research run per stock per day is plenty)
 // ---------------------------------------------------------------------------
@@ -169,19 +180,41 @@ export async function runResearch(ticker, bundle, { signal, onProgress } = {}) {
       onText: ({ text }) => onProgress?.(text.length),
     }).catch((e) => { throw Object.assign(new Error(claudeMessage(e.code)), { code: e.code }); });
   } else if (engine.id === 'local') {
+    // Speed-ups: no "thinking out loud" first (the biggest delay with qwen3),
+    // a smaller memory window, and keeping the model loaded for 30 minutes.
+    // The answer streams in, so the page can show progress as it's written.
     const res = await fetch(`${OLLAMA}/api/chat`, {
       method: 'POST',
       signal,
       body: JSON.stringify({
         model: engine.model,
-        stream: false,
+        stream: true,
+        think: false,
         format: 'json',
-        options: { temperature: 0.2, num_ctx: 24576, num_predict: 8192 },
+        keep_alive: '30m',
+        options: { temperature: 0.2, num_ctx: 16384, num_predict: 6000 },
         messages: [{ role: 'user', content: prompt }],
       }),
     });
     if (!res.ok) throw new Error(`Your Mac's AI answered ${res.status}. Is the model downloaded?`);
-    raw = parseJSON((await res.json()).message?.content);
+    let text = '';
+    let pending = '';
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      // Each line is a small JSON piece: { message: { content: "next few words" } }
+      const lines = (pending + decoder.decode(value, { stream: true })).split('\n');
+      pending = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        text += JSON.parse(line).message?.content ?? '';
+      }
+      onProgress?.(text.length);
+    }
+    if (pending.trim()) text += JSON.parse(pending).message?.content ?? '';
+    raw = parseJSON(text);
   } else {
     const res = await fetch('/api/ai', {
       method: 'POST',

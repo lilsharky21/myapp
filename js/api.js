@@ -49,15 +49,51 @@ async function request(path) {
   return { status: 'live', data: body };
 }
 
+// Company data that changes slowly is also kept on this device, so a stock
+// you opened earlier (even yesterday) shows instantly. Prices aren't kept:
+// they need to be fresh, and price history is too big.
+const KEEP = new Set(['fundamentals', 'financials', 'peers']);
+const DISK = 'thesis-journal/cache/';
+
+function fromDisk(key, ttl) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DISK + key));
+    return saved && Date.now() - saved.at < ttl ? saved.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function toDisk(key, data) {
+  const value = JSON.stringify({ at: Date.now(), data });
+  try {
+    localStorage.setItem(DISK + key, value);
+  } catch {
+    // Full: forget all saved company data and try once more
+    try {
+      Object.keys(localStorage).filter((k) => k.startsWith(DISK)).forEach((k) => localStorage.removeItem(k));
+      localStorage.setItem(DISK + key, value);
+    } catch { /* storage unavailable; the app still works */ }
+  }
+}
+
 function load(kind, symbol, { ttl, extra = '', fresh = false, demo }) {
   const key = `${kind}:${symbol}${extra}`;
   const hit = remembered.get(key);
   if (!fresh && hit && Date.now() - hit.at < ttl) return hit.promise;
 
+  const saved = !fresh && KEEP.has(kind) ? fromDisk(key, ttl) : null;
+  if (saved) {
+    const promise = Promise.resolve({ status: 'live', data: saved });
+    remembered.set(key, { at: Date.now(), promise });
+    return promise;
+  }
+
   const promise = request(`/api/${kind}?symbol=${encodeURIComponent(symbol)}${extra}`).then((result) => {
     if (result.status === 'offline' || result.status === 'not_configured') {
       return { status: 'demo', reason: result.status, service: result.service, data: demo(demoData(symbol)) };
     }
+    if (result.status === 'live' && KEEP.has(kind)) toDisk(key, result.data);
     return result;
   });
   remembered.set(key, { at: Date.now(), promise });
