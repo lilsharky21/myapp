@@ -27,7 +27,7 @@ export async function loadMarket(symbols) {
   return { status: 'live', data: body };
 }
 
-// US Treasury yields (api/rates.js). Returns the numbers, or null if unavailable.
+// US Treasury yields (api/_routes/rates.js). Returns the numbers, or null if unavailable.
 export async function loadRates() {
   try {
     const res = await fetch('/api/rates', { headers: { Accept: 'application/json', ...passcodeHeaders() } });

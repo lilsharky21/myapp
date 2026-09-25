@@ -5,7 +5,7 @@
 // Blob storage (the same place research notes sync through). That's how the
 // Mac and the iPhone show the same ideas.
 
-import { fail, guard } from '../lib/http.js';
+import { fail, guard } from '../../lib/http.js';
 import { storage, blobConfigured } from './notes.js';
 
 const MAX_BYTES = 3_000_000;

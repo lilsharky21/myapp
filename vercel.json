@@ -1,9 +1,10 @@
 {
   "functions": {
-    "api/ai.js": { "maxDuration": 60 },
-    "api/screen.js": { "maxDuration": 30 },
-    "api/jobs.js": { "maxDuration": 60 }
+    "api/router.js": { "maxDuration": 60 }
   },
+  "rewrites": [
+    { "source": "/api/:route", "destination": "/api/router?route=:route" }
+  ],
   "headers": [
     { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
   ]

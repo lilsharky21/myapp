@@ -416,9 +416,10 @@ globalThis.fetch = async (url, options = {}) => {
   if (!body) return new Response('not found', { status: 404 });
   return Response.json(body);
 };
+// Every call goes through the one Vercel function (api/router.js), like the real app
 const call = async (file, query, { method = 'GET', body, headers = {} } = {}) => {
-  const handlers = await import(`../api/${file}.js`);
-  const res = await handlers[method](new Request(`http://localhost/api/${file}?${query}`, { method, body, headers }));
+  const router = await import('../api/router.js');
+  const res = await router[method](new Request(`http://localhost/api/router?route=${file}&${query}`, { method, body, headers }));
   return { status: res.status, body: await res.json(), cache: res.headers.get('cache-control') };
 };
 
@@ -551,7 +552,7 @@ await test('/api/status spots missing and refused keys', async () => {
 });
 
 await test('/api/notes saves a note and reads it back (private, overwritten)', async () => {
-  const { useStorageForTests } = await import('../api/notes.js');
+  const { useStorageForTests } = await import('../api/_routes/notes.js');
   const files = new Map();
   const calls = [];
   useStorageForTests({
@@ -743,7 +744,7 @@ await test('Analysis snapshot has what cards and Compare show', async () => {
 console.log('\nNew endpoints');
 
 await test('/api/journal saves privately and reads back; bad input refused', async () => {
-  const { useStorageForTests } = await import('../api/notes.js');
+  const { useStorageForTests } = await import('../api/_routes/notes.js');
   const files = new Map();
   const calls = [];
   useStorageForTests({
@@ -797,7 +798,7 @@ await test('/api/market: markets, sectors, your earnings and headlines in one an
 });
 
 await test('Sync works with either Blob setting Vercel adds (token or store id)', async () => {
-  const { useStorageForTests } = await import('../api/notes.js');
+  const { useStorageForTests } = await import('../api/_routes/notes.js');
   const files = new Map();
   useStorageForTests({
     put: async (path, body) => { files.set(path, body); return { pathname: path }; },
@@ -901,7 +902,7 @@ await test('/api/screen returns one set of the stock list, cached for 12 hours',
 });
 
 await test('Treasury yields: parse the CSV, a month-ago comparison, inversion', async () => {
-  const { parseTreasuryCsv, summarizeRates } = await import('../api/rates.js');
+  const { parseTreasuryCsv, summarizeRates } = await import('../api/_routes/rates.js');
   const csv = [
     'Date,"1 Mo","2 Mo","3 Mo","6 Mo","1 Yr","2 Yr","3 Yr","5 Yr","7 Yr","10 Yr","20 Yr","30 Yr"',
     '09/24/2026,4.40,4.38,4.35,4.20,4.05,4.10,4.00,3.95,4.00,4.02,4.40,4.35',
@@ -929,8 +930,8 @@ const jobStorage = {
   get: async (path) => (jobFiles.has(path) ? { statusCode: 200, stream: new Response(jobFiles.get(path)).body } : null),
 };
 const jobCall = async (query, { method = 'GET', body, headers = {} } = {}) => {
-  const handlers = await import('../api/jobs.js');
-  const res = await handlers[method](new Request(`http://localhost/api/jobs?${query}`, { method, body, headers }));
+  const router = await import('../api/router.js');
+  const res = await router[method](new Request(`http://localhost/api/jobs?${query}`, { method, body, headers }));
   const text = await res.text();
   let json = null;
   try { json = JSON.parse(text); } catch { /* not JSON (or empty) */ }
@@ -938,7 +939,7 @@ const jobCall = async (query, { method = 'GET', body, headers = {} } = {}) => {
 };
 
 await test('Phone requests are queued once each, and the status shows them', async () => {
-  const { useStorageForTests } = await import('../api/notes.js');
+  const { useStorageForTests } = await import('../api/_routes/notes.js');
   useStorageForTests(jobStorage);
   jobFiles.clear();
   process.env.BLOB_READ_WRITE_TOKEN = 'test-token';
@@ -986,7 +987,7 @@ await test("Mac helper's answer becomes the note; bad answers are refused", asyn
 });
 
 await test('Nothing to do -> 204; hourly check refreshes the oldest watchlist note', async () => {
-  const { stalest } = await import('../api/jobs.js');
+  const { stalest } = await import('../api/_routes/jobs.js');
   jobFiles.set('jobs/queue.json', JSON.stringify({ requests: [], done: { AAPL: Date.now() } }));
   assert.equal((await jobCall('next=1')).status, 204);
   jobFiles.set('journal/ideas.json', JSON.stringify({ ideas: [
@@ -1021,6 +1022,23 @@ await test('Mac setup with the phone helper: valid bash, passcode quoted safely'
   // The shell reads back exactly the passcode that was given
   const out = execFileSync('bash', ['-c', `set -- ${cmd.split('\n')[0].replace(/^bash -s -- /, '').replace(/ <<'THESIS_SETUP'$/, '')}; echo "$5"`]).toString().trim();
   assert.equal(out, "it's $HOME `x`");
+});
+
+await test('The backend is one Vercel function (free plan allows 12), covering every route', async () => {
+  const { readdirSync } = await import('node:fs');
+  const functions = readdirSync(new URL('../api/', import.meta.url)).filter((f) => f.endsWith('.js'));
+  assert.deepEqual(functions, ['router.js']);
+  const routes = readdirSync(new URL('../api/_routes/', import.meta.url)).filter((f) => f.endsWith('.js')).map((f) => f.slice(0, -3)).sort();
+  const { ROUTE_NAMES, GET, POST } = await import('../api/router.js');
+  assert.deepEqual([...ROUTE_NAMES].sort(), routes);
+  // Unknown routes and missing methods are refused; /api/<name> without ?route= also works
+  assert.equal((await GET(new Request('http://localhost/api/router?route=nope'))).status, 404);
+  assert.equal((await GET(new Request('http://localhost/api/router?route=constructor'))).status, 404);
+  assert.equal((await POST(new Request('http://localhost/api/quote?symbol=AAPL', { method: 'POST' }))).status, 405);
+  assert.equal((await GET(new Request('http://localhost/api/quote?symbol=AAPL'))).status, 200);
+  const vercel = JSON.parse((await import('node:fs')).readFileSync(new URL('../vercel.json', import.meta.url), 'utf8'));
+  assert.equal(vercel.rewrites[0].destination, '/api/router?route=:route');
+  assert.deepEqual(Object.keys(vercel.functions), ['api/router.js']);
 });
 
 // ---------------------------------------------------------------------------

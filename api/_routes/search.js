@@ -1,8 +1,8 @@
 // GET /api/search?q=apple
 // Find a stock by name or ticker (Finnhub symbol search).
 
-import { ok, fail, guard, DAY } from '../lib/http.js';
-import { finnhub } from '../lib/finnhub.js';
+import { ok, fail, guard, DAY } from '../../lib/http.js';
+import { finnhub } from '../../lib/finnhub.js';
 
 export async function GET(request) {
   try {

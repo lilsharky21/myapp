@@ -37,7 +37,7 @@ export function savePasscode(code) {
 }
 
 // Normally data comes from the backend over the internet. The backend itself
-// (api/jobs.js, which prepares research for your Mac) swaps in a fetcher
+// (api/_routes/jobs.js, which prepares research for your Mac) swaps in a fetcher
 // that calls the other API functions directly.
 let fetcher = (path, init) => fetch(path, init);
 export function useFetcher(fn) {

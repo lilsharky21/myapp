@@ -34,12 +34,10 @@ const TYPES = {
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   try {
-    // /api/quote -> api/quote.js
+    // /api/quote -> api/router.js -> api/_routes/quote.js (the same way Vercel does it)
     const api = url.pathname.match(/^\/api\/([a-z-]+)$/);
     if (api) {
-      const file = join(ROOT, 'api', `${api[1]}.js`);
-      if (!existsSync(file)) return send(res, 404, 'text/plain', 'No such API');
-      const handlers = await import(file);
+      const handlers = await import(join(ROOT, 'api', 'router.js'));
       const handler = handlers[req.method];
       if (!handler) return send(res, 405, 'text/plain', 'Method not allowed');
       const body = req.method === 'GET' || req.method === 'HEAD' ? undefined : await readBody(req);

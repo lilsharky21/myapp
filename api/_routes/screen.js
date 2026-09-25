@@ -4,9 +4,9 @@
 // sets of about 23, and cached for 12 hours, so screening stays well inside
 // the free limit (60 requests a minute).
 
-import { ok, fail, guard, HOUR } from '../lib/http.js';
-import { finnhub } from '../lib/finnhub.js';
-import { UNIVERSE } from '../js/universe.js';
+import { ok, fail, guard, HOUR } from '../../lib/http.js';
+import { finnhub } from '../../lib/finnhub.js';
+import { UNIVERSE } from '../../js/universe.js';
 export const SET_SIZE = 23;
 export const SET_COUNT = Math.ceil(UNIVERSE.length / SET_SIZE);
 

@@ -52,7 +52,7 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | `js/record.js` | "Your record" on the Closed tab |
 | `js/tabs/sizer.js` | The position size calculator |
 | `js/install.js`, `sw.js` | Home Screen tip and offline support |
-| `api/jobs.js` | The Mac's to-do list: notes your phone asked for, prepared for the Mac's AI |
+| `api/_routes/jobs.js` | The Mac's to-do list: notes your phone asked for, prepared for the Mac's AI |
 | `lib/blob.js` | Your private storage (journal, notes, the Mac's to-do list) |
 | `js/stock.js` | The stock page: loads data, works out ratings, runs the AI |
 | `js/tabs/` | One file per tab (overview, journal, research, ratings, technicals, financials, valuation, earnings, investors, news) |
@@ -67,7 +67,8 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | `js/api.js` | Gets data from the backend, or falls back to demo numbers |
 | `js/demo.js` | The demo numbers |
 | `js/format.js` | Turns numbers into "$1.2B", "+3.4%", "3h ago" |
-| `api/` | The backend: small functions that run on Vercel and fetch market data |
+| `api/router.js` | The whole backend as one Vercel function (the free plan allows 12 functions; this keeps it at 1). It sends each `/api/<name>` request to `api/_routes/<name>.js` |
+| `api/_routes/` | Each backend endpoint: prices, history, fundamentals, financials, news, peers, search, market, rates, screener, sync, notes, the Mac's jobs, status |
 | `lib/` | Shared backend code (Finnhub, SEC EDGAR, financial statements) |
 | `tests/run.js` | Automatic checks: `npm test` |
 | `vendor/` | TradingView's free chart library |

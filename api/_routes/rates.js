@@ -4,7 +4,7 @@
 // Rates move the whole market: when they rise, future profits are worth
 // less today, which usually weighs on stock prices (growth stocks most).
 
-import { ok, fail, guard, cached, HOUR } from '../lib/http.js';
+import { ok, fail, guard, cached, HOUR } from '../../lib/http.js';
 
 const TENORS = [['1mo', '1M', 1 / 12], ['3mo', '3M', 0.25], ['6mo', '6M', 0.5], ['1yr', '1Y', 1], ['2yr', '2Y', 2],
   ['5yr', '5Y', 5], ['10yr', '10Y', 10], ['20yr', '20Y', 20], ['30yr', '30Y', 30]];

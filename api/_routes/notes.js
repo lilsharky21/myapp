@@ -6,10 +6,10 @@
 // private files (only this app can read them). That's how research written
 // by the local AI on your Mac shows up on your phone.
 
-import { fail, guard } from '../lib/http.js';
-import { storage, blobConfigured, markNoteDone } from '../lib/blob.js';
+import { fail, guard } from '../../lib/http.js';
+import { storage, blobConfigured, markNoteDone } from '../../lib/blob.js';
 
-export { storage, useStorageForTests, blobConfigured } from '../lib/blob.js';
+export { storage, useStorageForTests, blobConfigured } from '../../lib/blob.js';
 
 const configured = blobConfigured;
 

@@ -2,9 +2,9 @@
 // Income statement, balance sheet and cash flow (10 years + 12 quarters),
 // straight from the company's SEC filings. No API key needed.
 
-import { ok, fail, guard, symbolFrom } from '../lib/http.js';
-import { lookupCompany, companyFacts } from '../lib/sec.js';
-import { buildStatements } from '../lib/statements.js';
+import { ok, fail, guard, symbolFrom } from '../../lib/http.js';
+import { lookupCompany, companyFacts } from '../../lib/sec.js';
+import { buildStatements } from '../../lib/statements.js';
 
 export async function GET(request) {
   try {

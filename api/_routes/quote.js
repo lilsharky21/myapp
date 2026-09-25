@@ -1,8 +1,8 @@
 // GET /api/quote?symbol=AAPL
 // The live price plus the basics about the company.
 
-import { ok, fail, guard, symbolFrom, MINUTE, DAY } from '../lib/http.js';
-import { finnhub } from '../lib/finnhub.js';
+import { ok, fail, guard, symbolFrom, MINUTE, DAY } from '../../lib/http.js';
+import { finnhub } from '../../lib/finnhub.js';
 
 export async function GET(request) {
   try {

@@ -2,7 +2,7 @@
 // GET /api/history?symbol=AAPL&span=intraday  -> the last 5 days in 5-minute steps
 // Prices come from Twelve Data (free key at twelvedata.com).
 
-import { ok, fail, guard, symbolFrom, needKey, fetchJSON, cached, MINUTE, HOUR } from '../lib/http.js';
+import { ok, fail, guard, symbolFrom, needKey, fetchJSON, cached, MINUTE, HOUR } from '../../lib/http.js';
 
 export async function GET(request) {
   try {

@@ -12,7 +12,7 @@
 //   2. "Claude"    - inside the claude.ai preview, using your own Claude plan
 //   3. "Gemini"    - optional, only if a GEMINI_API_KEY is set on Vercel
 // Notes written on the Mac are saved to your Vercel account, so your phone
-// shows them too (see api/notes.js).
+// shows them too (see api/_routes/notes.js).
 // ==========================================================================
 
 import { passcodeHeaders } from './api.js';
@@ -245,7 +245,7 @@ function shareNote(ticker, entry) {
 }
 
 // ---------------------------------------------------------------------------
-// Asking your Mac from the phone (see api/jobs.js): the Mac helper checks
+// Asking your Mac from the phone (see api/_routes/jobs.js): the Mac helper checks
 // every few minutes and writes the notes you asked for.
 // ---------------------------------------------------------------------------
 

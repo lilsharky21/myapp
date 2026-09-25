@@ -11,11 +11,11 @@
 //                                               Ollama request, or 204 if there's nothing to do
 // POST /api/jobs?done=NVDA&model=...         -> (Mac helper) Ollama's answer, saved as the note
 
-import { fail, guard } from '../lib/http.js';
-import { blobConfigured, readJSON, writeJSON, readQueue, markNoteDone, notePath, QUEUE_PATH, JOURNAL_PATH } from '../lib/blob.js';
-import { useFetcher } from '../js/api.js';
-import { loadAndAnalyze, researchBundle } from '../js/analysis.js';
-import { buildPrompt, normalize, parseJSON } from '../js/ai.js';
+import { fail, guard } from '../../lib/http.js';
+import { blobConfigured, readJSON, writeJSON, readQueue, markNoteDone, notePath, QUEUE_PATH, JOURNAL_PATH } from '../../lib/blob.js';
+import { useFetcher } from '../../js/api.js';
+import { loadAndAnalyze, researchBundle } from '../../js/analysis.js';
+import { buildPrompt, normalize, parseJSON } from '../../js/ai.js';
 import * as quote from './quote.js';
 import * as history from './history.js';
 import * as fundamentals from './fundamentals.js';

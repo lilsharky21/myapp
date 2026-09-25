@@ -1,7 +1,7 @@
 // ==========================================================================
 // universe.js: the stocks the Discover screener looks through.
 // About 90 of the best-known US companies, covering all 11 sectors.
-// Shared by the screener page and the backend (api/screen.js).
+// Shared by the screener page and the backend (api/_routes/screen.js).
 // ==========================================================================
 
 export const UNIVERSE = [

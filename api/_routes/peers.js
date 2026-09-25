@@ -2,8 +2,8 @@
 // Similar companies (Finnhub's peer list) with their price, size,
 // valuation, growth and margins, for side-by-side comparison.
 
-import { ok, fail, guard, symbolFrom, MINUTE, HOUR, DAY } from '../lib/http.js';
-import { finnhub } from '../lib/finnhub.js';
+import { ok, fail, guard, symbolFrom, MINUTE, HOUR, DAY } from '../../lib/http.js';
+import { finnhub } from '../../lib/finnhub.js';
 
 const MAX_PEERS = 6;
 

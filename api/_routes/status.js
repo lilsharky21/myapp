@@ -2,7 +2,7 @@
 // Checks every data connection for real: one tiny request per service.
 // The app's "Data connections" card uses this to show ✓ or how to fix it.
 
-import { guard, fail, fetchJSON } from '../lib/http.js';
+import { guard, fail, fetchJSON } from '../../lib/http.js';
 import { storage, blobConfigured } from './notes.js';
 
 export async function GET(request) {

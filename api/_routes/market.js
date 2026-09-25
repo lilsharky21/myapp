@@ -3,8 +3,8 @@
 // gold, oil, dollar, bitcoin), the 11 sectors, upcoming earnings for your
 // watchlist, and top market headlines. All from Finnhub.
 
-import { ok, fail, guard, MINUTE, HOUR, DAY } from '../lib/http.js';
-import { finnhub, isoDay } from '../lib/finnhub.js';
+import { ok, fail, guard, MINUTE, HOUR, DAY } from '../../lib/http.js';
+import { finnhub, isoDay } from '../../lib/finnhub.js';
 
 // Funds that track each market (Finnhub's free plan has funds, not raw indexes)
 export const MARKETS = [

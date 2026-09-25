@@ -6,7 +6,7 @@
 // isn't used there. The app builds the prompt; this just passes it along with
 // the secret key added.
 
-import { fail, guard, needKey, fetchJSON } from '../lib/http.js';
+import { fail, guard, needKey, fetchJSON } from '../../lib/http.js';
 
 const model = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 const MAX_PROMPT = 120_000; // characters
