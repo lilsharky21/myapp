@@ -6,10 +6,15 @@
   <meta name="color-scheme" content="light dark">
   <title>Thesis Journal</title>
   <link rel="stylesheet" href="styles.css">
+  <!-- TradingView's free chart library (Apache 2.0 license, see vendor/lightweight-charts/LICENSE) -->
+  <script src="vendor/lightweight-charts/lightweight-charts.standalone.production.js"></script>
   <!-- "module" lets our JavaScript files import from each other -->
   <script type="module" src="js/app.js"></script>
 </head>
 <body>
+
+  <!-- ===== The watchlist ===== -->
+  <div id="list-view">
 
   <!-- Thin bar that fades in at the top once you scroll past the big title (like iOS) -->
   <header class="topbar" id="topbar">
@@ -40,6 +45,11 @@
 
     <p class="footnote" id="storage-note">Saved on this device.</p>
   </main>
+
+  </div>
+
+  <!-- ===== The stock page (filled in by js/stock.js) ===== -->
+  <div id="stock-view" class="stock-page" hidden></div>
 
   <!-- The add / edit sheet that slides up from the bottom -->
   <div class="backdrop" id="backdrop" hidden></div>

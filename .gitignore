@@ -1,0 +1,9 @@
+# Your secret keys. Never upload these.
+.env
+.env.local
+
+# Vercel's local settings folder
+.vercel
+
+node_modules
+.DS_Store

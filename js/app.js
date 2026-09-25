@@ -5,6 +5,9 @@
 // ==========================================================================
 
 import { loadIdeas, saveIdeas, createIdea, parsePrice, CONVICTION_WORDS } from './journal.js';
+import { openStockPage, closeStockPage, refreshIdea } from './stock.js';
+import { getQuote } from './api.js';
+import * as f from './format.js';
 
 // Shortcut: $('#list') finds the element with id="list"
 const $ = (selector) => document.querySelector(selector);
@@ -18,6 +21,9 @@ const state = {
   filter: 'watching',           // which tab is showing
   editingId: null,              // the idea being edited (null = adding a new one)
   form: { conviction: 3, status: 'watching' },
+  openStockId: null,            // the stock page that's open (null = watchlist)
+  listScroll: 0,                // where you were in the list, to come back to
+  usedHistory: false,           // whether the browser's back button knows about the stock page
 };
 
 const FILTERS = ['watching', 'own', 'closed'];
@@ -41,6 +47,20 @@ function render({ animateIn = false } = {}) {
   $('#list').innerHTML = shown.length
     ? shown.map((idea, k) => cardHTML(idea, k, animateIn)).join('')
     : emptyHTML(state.filter);
+  fillPrices(shown);
+}
+
+// Live prices on the cards. Only real prices are shown here, never demo ones.
+function fillPrices(ideas) {
+  for (const idea of ideas) {
+    getQuote(idea.ticker).then((result) => {
+      if (result.status !== 'live') return;
+      const el = document.querySelector(`[data-price-for="${CSS.escape(idea.ticker)}"]`);
+      if (!el) return;
+      const q = result.data;
+      el.innerHTML = `${f.price(q.price)} <span class="${f.tone(q.changePct)}">${f.pct(q.changePct)}</span>`;
+    });
+  }
 }
 
 function cardHTML(idea, k, animateIn) {
@@ -54,13 +74,16 @@ function cardHTML(idea, k, animateIn) {
 
   return `
     <article class="card${animateIn ? ' enter' : ''}" data-id="${idea.id}" tabindex="0" role="button"
-             aria-label="Edit ${esc(idea.ticker)}" style="--k:${k}; view-transition-name:${idea.id}">
+             aria-label="Open ${esc(idea.ticker)}" style="--k:${k}; view-transition-name:${idea.id}">
       <div class="card-top">
         <div>
           <h3 class="ticker">${esc(idea.ticker)}</h3>
           ${showCompany ? `<p class="company">${esc(idea.company)}${idea.sample ? '<span class="tag">Sample</span>' : ''}</p>` : ''}
         </div>
-        ${dotsHTML(idea.conviction)}
+        <div class="card-right">
+          ${dotsHTML(idea.conviction)}
+          <p class="card-price" data-price-for="${esc(idea.ticker)}"></p>
+        </div>
       </div>
       <p class="thesis${idea.thesis ? '' : ' empty'}">${esc(idea.thesis || 'No thesis yet. Tap to write one.')}</p>
       <dl class="meta">
@@ -250,14 +273,14 @@ $('#filters').addEventListener('click', (event) => {
 $('#list').addEventListener('click', (event) => {
   if (event.target.closest('[data-action="add"]')) return openSheet();
   const card = event.target.closest('.card');
-  if (card) openSheet(state.ideas.find((i) => i.id === card.dataset.id));
+  if (card) openStock(state.ideas.find((i) => i.id === card.dataset.id));
 });
 
 $('#list').addEventListener('keydown', (event) => {
   const card = event.target.closest('.card');
   if (card && (event.key === 'Enter' || event.key === ' ')) {
     event.preventDefault();
-    openSheet(state.ideas.find((i) => i.id === card.dataset.id));
+    openStock(state.ideas.find((i) => i.id === card.dataset.id));
   }
 });
 
@@ -293,18 +316,22 @@ sheet.addEventListener('submit', async (event) => {
   const fields = readForm();
   if (!fields) return;
 
+  let saved;
   if (state.editingId) {
     const index = state.ideas.findIndex((i) => i.id === state.editingId);
     // Editing a sample makes it yours, so the "Sample" tag goes away
-    state.ideas[index] = { ...state.ideas[index], ...fields, sample: false, updatedAt: new Date().toISOString() };
+    saved = { ...state.ideas[index], ...fields, sample: false, updatedAt: new Date().toISOString() };
+    state.ideas[index] = saved;
   } else {
-    state.ideas.unshift(createIdea(fields));
+    saved = createIdea(fields);
+    state.ideas.unshift(saved);
   }
   persist();
   state.filter = fields.status; // jump to the tab where the idea now lives
 
   await closeSheet();
-  withTransition(() => render());
+  if (state.openStockId === saved.id) refreshIdea(saved);
+  else withTransition(() => render());
 });
 
 // Delete needs two taps, so you can't lose an idea by accident
@@ -318,7 +345,55 @@ deleteBtn.addEventListener('click', async () => {
   state.ideas = state.ideas.filter((i) => i.id !== state.editingId);
   persist();
   await closeSheet();
-  withTransition(() => render());
+  if (state.openStockId === state.editingId) goBack();
+  else withTransition(() => render());
+});
+
+// ---------- The stock page ----------
+
+function openStock(idea, { remember = true } = {}) {
+  if (!idea) return;
+  state.listScroll = window.scrollY;
+  state.openStockId = idea.id;
+  withTransition(() => {
+    $('#list-view').hidden = true;
+    $('#stock-view').hidden = false;
+    openStockPage($('#stock-view'), idea, { onEdit: (i) => openSheet(i), onBack: goBack });
+    window.scrollTo(0, 0);
+  });
+  // Let the browser's back button (and swipe-back on iPhone) return to the list
+  if (remember) {
+    try {
+      history.pushState({ stock: idea.id }, '', `#${encodeURIComponent(idea.ticker)}`);
+      state.usedHistory = true;
+    } catch {
+      state.usedHistory = false;
+    }
+  }
+}
+
+function closeStock() {
+  if (!state.openStockId) return;
+  state.openStockId = null;
+  withTransition(() => {
+    closeStockPage();
+    $('#stock-view').hidden = true;
+    $('#stock-view').innerHTML = '';
+    $('#list-view').hidden = false;
+    render();
+    window.scrollTo(0, state.listScroll);
+  });
+}
+
+function goBack() {
+  if (state.usedHistory && history.state?.stock) history.back();
+  else closeStock();
+}
+
+window.addEventListener('popstate', (event) => {
+  const id = event.state?.stock;
+  if (id && id !== state.openStockId) openStock(state.ideas.find((i) => i.id === id), { remember: false });
+  else if (!id) closeStock();
 });
 
 // ---------- The top bar that fades in when you scroll ----------
@@ -333,3 +408,11 @@ new IntersectionObserver(
 $('#today').textContent = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date());
 if (!state.canSave) persist(); // shows the "can't save" warning right away
 render({ animateIn: true });
+
+// Opening a link like ...#NVDA goes straight to that stock
+const fromLink = decodeURIComponent(location.hash.slice(1)).toUpperCase();
+const linked = fromLink && state.ideas.find((i) => i.ticker === fromLink);
+if (linked) {
+  try { history.replaceState(null, '', location.pathname + location.search); } catch { /* preview frames can block this */ }
+  openStock(linked);
+}

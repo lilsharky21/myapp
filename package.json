@@ -1,0 +1,13 @@
+{
+  "name": "thesis-journal",
+  "private": true,
+  "type": "module",
+  "description": "A personal stock research notebook with live market data.",
+  "scripts": {
+    "dev": "node dev-server.js",
+    "test": "node tests/run.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
