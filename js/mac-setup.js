@@ -1,5 +1,12 @@
-#!/bin/bash
-# One-time Mac setup for Thesis Journal's AI.
+// ==========================================================================
+// mac-setup.js: the one-time Mac setup, as a command you can paste.
+// The whole script is inside the command, so nothing is downloaded and it
+// works from any address of the app. (setup/mac.sh is the same script as a
+// file; a test keeps the two identical.)
+// ==========================================================================
+
+// The script itself. It expects the allowed app addresses as its arguments.
+export const SCRIPT_BODY = `# One-time Mac setup for Thesis Journal's AI.
 # 1. Allows your app's address(es) to talk to Ollama, now and after every
 #    restart, using a small login item (a macOS "LaunchAgent")
 # 2. Downloads the qwen3:14b model if you don't have it
@@ -9,12 +16,12 @@ set -e
 
 ORIGINS=""
 for url in "$@"; do
-  url="${url%/}"
+  url="\${url%/}"
   if [[ ! "$url" =~ ^https?://[a-zA-Z0-9.:-]+$ ]]; then
     echo "Skipping '$url' (not a web address)"
     continue
   fi
-  ORIGINS="${ORIGINS:+$ORIGINS,}$url"
+  ORIGINS="\${ORIGINS:+$ORIGINS,}$url"
 done
 if [ -z "$ORIGINS" ]; then
   echo "Give your app's address, like: https://your-app.vercel.app"
@@ -56,9 +63,17 @@ if ! "$OLLAMA_BIN" list 2>/dev/null | grep -q "^qwen3:14b"; then
   "$OLLAMA_BIN" pull qwen3:14b
 fi
 
-FIRST="${ORIGINS%%,*}"
+FIRST="\${ORIGINS%%,*}"
 if curl -fs -H "Origin: $FIRST" http://localhost:11434/api/tags >/dev/null; then
   echo "✓ All set. Reload the app in your browser."
 else
   echo "Ollama is still starting. Wait a few seconds, then reload the app."
 fi
+`;
+
+// A command to paste into Terminal: runs the script with these addresses.
+export function macSetupCommand(origins) {
+  const list = [...new Set(origins.filter(Boolean).map((o) => o.replace(/\/$/, '')))];
+  const args = list.map((o) => `'${o.replace(/'/g, '')}'`).join(' ');
+  return `bash -s -- ${args} <<'THESIS_SETUP'\n${SCRIPT_BODY}THESIS_SETUP\n`;
+}

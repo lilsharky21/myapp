@@ -48,8 +48,9 @@ account so your iPhone shows them too.
 
 **On the Mac (one time, about 10 minutes, mostly download time):**
 1. Go to **ollama.com**, download Ollama for macOS, and open it once.
-2. Open your app on the Mac → any stock → **Ratings**. The AI box shows a
-   one-line setup command with your app's address already filled in. Tap **Copy**.
+2. Open your app on the Mac, scroll to the bottom of the watchlist → **Data connections**
+   → **Set up Mac AI (one time)** → **Copy**. The command already has your app's
+   addresses inside it, so there's nothing to type or change.
 3. Open **Terminal** (⌘ Space, type Terminal), paste, and press Return. It:
    - allows your app to talk to Ollama, and keeps allowing it after restarts
    - downloads the qwen3:14b model if you don't have it (about 9 GB)
@@ -100,6 +101,14 @@ devices. Without one, anyone who found your web address could use up your free l
    Leave all environments ticked (Production, Preview, Development).
 3. Go to **Deployments**, tap **⋯** on the newest one, and choose **Redeploy**.
    Keys only take effect after a redeploy.
+
+## About your app's address
+
+Vercel gives your app a **permanent** address (project → **Domains**, like
+`myapp-abc123.vercel.app`) and also a separate address for every single deploy
+(with a random part, like `myapp-o5pqwqc5e-yourteam.vercel.app`). Deploy addresses
+show the code from that moment only. Bookmark the permanent one and add that to
+your Home Screen.
 
 ## 8. Check that it worked
 

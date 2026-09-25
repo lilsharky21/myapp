@@ -613,6 +613,18 @@ await test('/api/ai and /api/status share the permanent app address', async () =
   delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
 });
 
+await test('Mac setup command: valid bash, both addresses, file copy matches', async () => {
+  const { SCRIPT_BODY, macSetupCommand } = await import('../js/mac-setup.js');
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+  const cmd = macSetupCommand(['https://myapp-abc.vercel.app/', 'https://myapp-xyz-team.vercel.app', null, 'https://myapp-abc.vercel.app']);
+  assert.match(cmd, /^bash -s -- 'https:\/\/myapp-abc\.vercel\.app' 'https:\/\/myapp-xyz-team\.vercel\.app' <<'THESIS_SETUP'/);
+  assert.equal(cmd.split('\nTHESIS_SETUP\n').length, 2); // the end marker appears exactly once
+  writeFileSync('/tmp/thesis-setup-test.sh', SCRIPT_BODY);
+  execFileSync('bash', ['-n', '/tmp/thesis-setup-test.sh']); // throws on a syntax error
+  assert.equal(readFileSync(new URL('../setup/mac.sh', import.meta.url), 'utf8'), '#!/bin/bash\n' + SCRIPT_BODY);
+});
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

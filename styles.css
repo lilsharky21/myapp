@@ -1556,6 +1556,10 @@ dl.inputs dd { margin: 0; font-weight: 600; text-align: right; font-variant-nume
 .diagnosis .btn-primary { justify-self: start; }
 .warn-line { color: var(--chart-orange); }
 .small-print { font-size: 12px; }
+.setup-what { margin-top: 6px; }
+.setup-what summary, .mac-setup summary { font-size: 14px; color: var(--accent); cursor: pointer; }
+.mac-setup { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.mac-setup .muted-line { margin: 8px 0; }
 
 /* ---------- Bigger screens ---------- */
 

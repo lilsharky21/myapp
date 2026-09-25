@@ -6,6 +6,22 @@
 
 import { esc } from './format.js';
 import { browserName } from './ai.js';
+import { macSetupCommand } from './mac-setup.js';
+
+// The setup command is long, so show a short label with a Copy button
+export function setupCopyBox(command) {
+  return `
+    <div class="cmd"><code>One-time setup command</code>
+      <button type="button" class="text-btn small" data-action="copy" data-copy="${esc(command)}">Copy</button></div>
+    <details class="setup-what"><summary>What it does</summary>
+      <ol class="setup-steps">
+        <li>Lets this app talk to Ollama, and keeps allowing it after your Mac restarts</li>
+        <li>Downloads the qwen3:14b model if you don't have it (about 9 GB, once)</li>
+        <li>Restarts Ollama</li>
+      </ol>
+      <p class="muted-line">To undo later: <code>rm ~/Library/LaunchAgents/com.thesisjournal.ollama.plist</code></p>
+    </details>`;
+}
 
 // ai: the page's AI state ({ diagnosis, productionUrl })
 export function setupBoxHTML(ai) {
@@ -28,10 +44,9 @@ export function setupBoxHTML(ai) {
       <button type="button" class="text-btn small" data-action="copy" data-copy="${esc(cmd)}">Copy</button></div>`;
   const command = `launchctl setenv OLLAMA_ORIGINS "${origins}"`;
   // The one-time setup: allows this app, survives restarts, restarts Ollama
-  const base = prod || (here.startsWith('https://') ? here : null);
-  const setup = base ? `curl -fsSL ${base}/setup/mac.sh | bash -s -- ${base}` : null;
+  const setup = here.startsWith('http') ? macSetupCommand([prod, here]) : null;
   const fixBox = setup
-    ? `Paste this into Terminal once. It sets everything up and keeps working after restarts:${commandBox(setup)}`
+    ? `Copy this and paste it into Terminal once. It sets everything up and keeps working after restarts:${setupCopyBox(setup)}`
     : `In Terminal, run:${commandBox(command)}`;
   const recheck = '<button type="button" class="btn-primary" data-action="recheck-ai">Check again</button>';
   const wrongAddress = prod && prod !== here

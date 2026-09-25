@@ -8,6 +8,8 @@ import { loadIdeas, saveIdeas, createIdea, parsePrice, CONVICTION_WORDS } from '
 import { openStockPage, closeStockPage, refreshIdea } from './stock.js';
 import { getQuote, passcodeHeaders } from './api.js';
 import { diagnoseLocalAI } from './ai.js';
+import { setupCopyBox } from './ai-setup.js';
+import { macSetupCommand } from './mac-setup.js';
 import * as f from './format.js';
 
 // Shortcut: $('#list') finds the element with id="list"
@@ -467,7 +469,11 @@ async function checkConnections() {
       <div><p class="conn-name">${name} <span class="muted">· ${what}</span></p>
       ${s.message ? `<p class="muted-line">${esc(s.message)}</p>` : ''}</div></li>`;
   }).join('')}</ul>
-  <button type="button" class="text-btn small" id="conn-again">Check again</button>`;
+  <button type="button" class="text-btn small" id="conn-again">Check again</button>
+  ${status.mac ? `<details class="mac-setup"><summary>Set up Mac AI (one time)</summary>
+    <p class="muted-line">Paste this into Terminal once. After that the AI keeps working, even after restarts.</p>
+    ${setupCopyBox(macSetupCommand([status.productionUrl ? `https://${status.productionUrl}` : null, location.origin]))}
+  </details>` : ''}`;
 }
 
 $('#connections').addEventListener('toggle', (event) => {
@@ -475,6 +481,13 @@ $('#connections').addEventListener('toggle', (event) => {
 });
 $('#conn-body').addEventListener('click', (event) => {
   if (event.target.id === 'conn-again') checkConnections();
+  const copy = event.target.closest('[data-action="copy"]');
+  if (copy) {
+    navigator.clipboard?.writeText(copy.dataset.copy).then(
+      () => { copy.textContent = 'Copied'; setTimeout(() => (copy.textContent = 'Copy'), 1500); },
+      () => { copy.textContent = 'Copy failed'; },
+    );
+  }
 });
 
 // ---------- The top bar that fades in when you scroll ----------
