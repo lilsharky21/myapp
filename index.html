@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Thesis Journal</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- "module" lets our JavaScript files import from each other -->
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+
+  <!-- Thin bar that fades in at the top once you scroll past the big title (like iOS) -->
+  <header class="topbar" id="topbar">
+    <span class="topbar-title">Watchlist</span>
+  </header>
+
+  <main class="page">
+    <div class="hero">
+      <p class="eyebrow" id="today"></p>
+      <div class="hero-row">
+        <h1 id="big-title">Watchlist</h1>
+        <button class="add-btn" id="add-btn" type="button" aria-label="Add a stock">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Watching / Own / Closed switch. The "thumb" is the sliding highlight. -->
+    <div class="segmented" id="filters" role="tablist" aria-label="Filter ideas">
+      <span class="seg-thumb" aria-hidden="true"></span>
+      <button type="button" role="tab" data-filter="watching">Watching <span class="count"></span></button>
+      <button type="button" role="tab" data-filter="own">Own <span class="count"></span></button>
+      <button type="button" role="tab" data-filter="closed">Closed <span class="count"></span></button>
+    </div>
+
+    <!-- The cards get drawn in here by js/app.js -->
+    <section class="list" id="list" aria-live="polite"></section>
+
+    <p class="footnote" id="storage-note">Saved on this device.</p>
+  </main>
+
+  <!-- The add / edit sheet that slides up from the bottom -->
+  <div class="backdrop" id="backdrop" hidden></div>
+  <form class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" hidden novalidate>
+    <div class="grabber" aria-hidden="true"></div>
+    <header class="sheet-head">
+      <button type="button" class="text-btn" id="cancel-btn">Cancel</button>
+      <h2 id="sheet-title">New Idea</h2>
+      <button type="submit" class="text-btn strong" id="save-btn">Save</button>
+    </header>
+
+    <div class="sheet-body">
+      <div class="group">
+        <label class="row" for="f-ticker">
+          <span>Ticker</span>
+          <input id="f-ticker" name="ticker" placeholder="AAPL" maxlength="12"
+                 autocomplete="off" autocapitalize="characters" spellcheck="false">
+        </label>
+        <label class="row" for="f-company">
+          <span>Company</span>
+          <input id="f-company" name="company" placeholder="Apple" autocomplete="off">
+        </label>
+      </div>
+
+      <label class="group-label" for="f-thesis">The thesis</label>
+      <div class="group">
+        <textarea id="f-thesis" name="thesis" rows="2" placeholder="What has to be true for this to work?"></textarea>
+      </div>
+
+      <label class="group-label" for="f-bull">Bull case</label>
+      <div class="group">
+        <textarea id="f-bull" name="bull" rows="3" placeholder="What goes right, and why the market is missing it"></textarea>
+      </div>
+
+      <label class="group-label" for="f-bear">Bear case</label>
+      <div class="group">
+        <textarea id="f-bear" name="bear" rows="3" placeholder="What would prove you wrong"></textarea>
+      </div>
+
+      <p class="group-label">Numbers</p>
+      <div class="group">
+        <label class="row" for="f-target">
+          <span>Target price</span>
+          <input id="f-target" name="target" inputmode="decimal" placeholder="$0.00" autocomplete="off">
+        </label>
+        <label class="row" for="f-entry">
+          <span>Price when added</span>
+          <input id="f-entry" name="entry" inputmode="decimal" placeholder="$0.00" autocomplete="off">
+        </label>
+      </div>
+
+      <p class="group-label">Conviction</p>
+      <div class="group">
+        <div class="row conviction-picker" id="f-conviction" role="radiogroup" aria-label="Conviction">
+          <div class="dots-input"></div>
+          <span class="conviction-word" id="conviction-word"></span>
+        </div>
+      </div>
+
+      <p class="group-label">Status</p>
+      <div class="segmented small" id="f-status" role="radiogroup" aria-label="Status">
+        <span class="seg-thumb" aria-hidden="true"></span>
+        <button type="button" role="radio" data-status="watching">Watching</button>
+        <button type="button" role="radio" data-status="own">Own</button>
+      </div>
+
+      <p class="form-error" id="form-error" hidden></p>
+
+      <button type="button" class="delete-btn" id="delete-btn" hidden>Delete Idea</button>
+    </div>
+  </form>
+
+</body>
+</html>
