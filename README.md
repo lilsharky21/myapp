@@ -12,7 +12,13 @@ Investors and News.
 - **Compare**: every idea in one sortable table (app score, Wall Street, AI, P/E, growth, DCF value, upside to your target, next earnings, conviction).
 - **Journal tab**: dated notes stamped with the price that day, trades you made (your position, average cost and profit/loss), thesis changes, review reminders every 90 days, and closing an idea with a verdict, a lesson, and how it did against the S&P 500.
 - **Sync**: the same watchlist and journal on your Mac and iPhone (through Blob storage in your own Vercel account), plus Export / Import backups.
-- **On the Mac**: write AI notes for your whole watchlist in one go, and keyboard shortcuts (`/` search, `N` new idea, `1`–`9` tabs, `Esc` back).
+- **Discover**: ready-made screens (Top rated, Quality at a fair price, Fast growers, Cheap vs. profits, Strong balance sheet, Beaten down but profitable, Dividend payers) across ~90 well-known US companies, each with a Quick score. Tap any result to research it.
+- **Price alerts**: "tell me when it goes above / below X", with one-tap alerts at your target and key support/resistance levels.
+- **How much should I buy?**: a position size calculator that keeps the loss at your stop to a set share of your account.
+- **Your record** (Closed tab): how often you called it, average return vs. the S&P 500, best and worst calls, whether high-conviction ideas did better, and all your lessons.
+- **Interest rates** in Today: US Treasury yields and the yield curve (free, from the Treasury, no key).
+- **On the Mac**: write AI notes for your whole watchlist in one go, and keyboard shortcuts (`/` search, `N` new idea, `D` discover, `1`–`9` tabs, `Esc` back).
+- **On the iPhone**: add it to the Home Screen and it runs full screen and opens offline (see docs/SETUP.md, step 9).
 
 ## Three ratings for every stock
 
@@ -40,6 +46,10 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | `js/compare.js` | The Compare table |
 | `js/search.js` | Stock search |
 | `js/batch.js` | Writing AI notes for the whole watchlist |
+| `js/screen.js`, `js/universe.js` | Discover: the screener, its Quick score and the list of stocks |
+| `js/record.js` | "Your record" on the Closed tab |
+| `js/tabs/sizer.js` | The position size calculator |
+| `js/install.js`, `sw.js` | Home Screen tip and offline support |
 | `js/stock.js` | The stock page: loads data, works out ratings, runs the AI |
 | `js/tabs/` | One file per tab (overview, journal, research, ratings, technicals, financials, valuation, earnings, investors, news) |
 | `js/ratings.js` | The app score, Piotroski F-Score and Altman Z-Score |
@@ -67,6 +77,7 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | Price history (charts and technicals) | Twelve Data | `TWELVEDATA_API_KEY` |
 | AI analyst | Ollama, running on your Mac (free, private) | None |
 | Journal and research notes on every device | Vercel Blob storage in your own account | `BLOB_READ_WRITE_TOKEN` or `BLOB_STORE_ID` (added by Vercel when you connect Blob) |
+| Interest rates (yield curve) | US Treasury | No |
 | Optional cloud AI (18+) | Google Gemini free tier | `GEMINI_API_KEY` |
 
 ## Put it online (Vercel) and add your keys
@@ -105,5 +116,4 @@ npm test                 # run the checks
 4. ✅ Go live on Vercel with real data, AI on the Mac, Add to Home Screen icon
 5. ✅ Journal: notes timeline, trades and positions, reviews, close with a verdict, sync, backup
 6. ✅ Today: markets, sectors, your earnings, headlines · search · Compare
-7. Macro: rates, inflation, jobs, yield curve (FRED)
-8. Price alerts
+7. ✅ Discover screener, price alerts, position sizing, your record, rates and the yield curve, offline Home Screen app

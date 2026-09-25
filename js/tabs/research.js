@@ -5,6 +5,7 @@
 import { f, esc, pill, viewTone, ratingTone, gradeHTML } from '../ui.js';
 import { SECTIONS, readingMinutes } from '../ai.js';
 import { setupBoxHTML } from '../ai-setup.js';
+import { sizerHTML } from './sizer.js';
 
 const RISK_TONE = { Low: 'up', Medium: 'neutral', High: 'down', 'Very high': 'down' };
 const THESIS_TONE = { Intact: 'up', Weakening: 'neutral', Broken: 'down' };
@@ -167,6 +168,7 @@ function levels(ctx, r) {
         ${r.levelsNote ? `<p class="prose small">${esc(r.levelsNote)}</p>` : ''}
         <p class="legend"><span><i class="swatch down"></i>Resistance (where rallies stalled)</span><span><i class="swatch up"></i>Support (where drops stopped)</span><span><i class="swatch accent"></i>Fair value</span><span><i class="swatch purple"></i>Moving average</span></p>
       </div>
+      ${sizerHTML(ctx, { open: ctx.view.journalOpen === 'size' })}
     </section>`;
 }
 

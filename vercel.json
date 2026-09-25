@@ -1,5 +1,9 @@
 {
   "functions": {
-    "api/ai.js": { "maxDuration": 60 }
-  }
+    "api/ai.js": { "maxDuration": 60 },
+    "api/screen.js": { "maxDuration": 30 }
+  },
+  "headers": [
+    { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+  ]
 }

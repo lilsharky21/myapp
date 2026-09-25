@@ -22,7 +22,8 @@ import { earningsTab } from './tabs/earnings.js';
 import { investorsTab } from './tabs/investors.js';
 import { newsTab } from './tabs/news.js';
 import { journalTab } from './tabs/journal.js';
-import { addNote, logTrade, closeIdea, reopenIdea, markReviewed, removeEntry, parsePrice, position } from './journal.js';
+import { addNote, logTrade, closeIdea, reopenIdea, markReviewed, removeEntry, parsePrice, position, addAlert, removeAlert, checkAlerts } from './journal.js';
+import { sizerOutputHTML, saveSizerPrefs, sizerPrefs } from './tabs/sizer.js';
 
 const TABS = [
   ['overview', 'Overview', overviewTab],
@@ -47,11 +48,11 @@ let view = null; // everything about the page that's open right now
 // Opening and closing
 // ---------------------------------------------------------------------------
 
-export function openStockPage(root, idea, { onEdit, onBack, onRated, onChange, onAdd, onOpenTicker, tab = 'overview' }) {
+export function openStockPage(root, idea, { onEdit, onBack, onRated, onChange, onAdd, onOpenTicker, onAlert, tab = 'overview' }) {
   closeStockPage();
   const saved = savedResearch(idea.ticker);
   view = {
-    root, idea, onEdit, onBack, onRated, onChange, onAdd, onOpenTicker,
+    root, idea, onEdit, onBack, onRated, onChange, onAdd, onOpenTicker, onAlert,
     tab,
     journalOpen: null,
     range: '1D',
@@ -153,7 +154,7 @@ function loadEverything() {
     if (!anyLoading()) reportRatings();
   };
   v.loaded = Promise.allSettled([
-    api.getQuote(symbol).then(done('quote', renderHeader)),
+    api.getQuote(symbol).then(done('quote', (r) => { renderHeader(); watchAlerts(r); })),
     api.getDaily(symbol).then(done('daily', renderChart)),
     api.getIntraday(symbol).then(done('intraday', renderChart)),
     api.getFundamentals(symbol).then(done('fundamentals')),
@@ -172,6 +173,7 @@ async function refreshQuote() {
   const before = v.data.quote.data.price;
   v.data.quote = result;
   renderHeader();
+  watchAlerts(result);
   const priceEl = v.root.querySelector('#st-price');
   if (result.data.price !== before) {
     priceEl.classList.remove('tick-up', 'tick-down');
@@ -533,6 +535,10 @@ function renderPanel() {
     if (el.type === 'radio') el.checked = value; else el.value = value;
   }
   if (focusedKeep) panel.querySelector(`[data-keep="${focusedKeep}"]`)?.focus({ preventScroll: true });
+  // The sizer's answer follows whatever is in its boxes after the redraw
+  panel.querySelectorAll('[data-sizer]').forEach((form) => {
+    form.querySelector('[data-sizer-out]').innerHTML = sizerOutputHTML(Object.fromEntries(new FormData(form)));
+  });
   updateAiProgress();
 }
 
@@ -556,6 +562,11 @@ function wire(root) {
     if (action === 'reviewed') return commit(markReviewed(view.idea));
     if (action === 'reopen') return commit(reopenIdea(view.idea));
     if (action === 'delete-entry') return commit(removeEntry(view.idea, el.dataset.id));
+    if (action === 'delete-alert') return commit(removeAlert(view.idea, el.dataset.id));
+    if (action === 'alert-quick') {
+      askForNotifications();
+      return commit(addAlert(view.idea, { dir: el.dataset.dir, price: Number(el.dataset.price), label: el.dataset.label }));
+    }
     if (action === 'show-close') {
       view.journalOpen = 'close';
       renderPanel();
@@ -642,6 +653,16 @@ function wire(root) {
 
   // Dragging a DCF slider updates the answer live
   root.addEventListener('input', (event) => {
+    const sizer = event.target.closest('[data-sizer]');
+    if (sizer) {
+      const values = Object.fromEntries(new FormData(sizer));
+      sizer.querySelector('[data-sizer-out]').innerHTML = sizerOutputHTML(values);
+      // Account size and risk % are remembered on this device
+      if (event.target.name === 'account' || event.target.name === 'riskPct') {
+        saveSizerPrefs({ ...sizerPrefs(), account: values.account, riskPct: values.riskPct });
+      }
+      return;
+    }
     const key = event.target.dataset?.dcf;
     if (!key || !view?.dcf) return;
     view.dcf[key] = Number(event.target.value);
@@ -660,8 +681,9 @@ function wire(root) {
 
   // Journal forms: note, trade, close
   root.addEventListener('submit', (event) => {
+    if (event.target.matches('[data-sizer]')) return event.preventDefault();
     const kind = event.target.dataset.form;
-    if (!view || !['note', 'trade', 'close'].includes(kind)) return;
+    if (!view || !['note', 'trade', 'close', 'alert'].includes(kind)) return;
     event.preventDefault();
     journalSubmit(kind, new FormData(event.target), event.target);
   }, { signal });
@@ -685,6 +707,22 @@ function wire(root) {
     { rootMargin: '-52px 0px 0px 0px' },
   );
   view.observer.observe(root.querySelector('.st-ticker'));
+}
+
+// On a computer, alerts can also pop up as notifications (asked once, when you set your first alert)
+function askForNotifications() {
+  try {
+    if ('Notification' in window && Notification.permission === 'default' && navigator.maxTouchPoints === 0) Notification.requestPermission().catch(() => {});
+  } catch { /* not supported */ }
+}
+
+// Did the price just cross one of your alerts? (real prices only)
+function watchAlerts(result) {
+  if (!view || view.idea.transient || result?.status !== 'live') return;
+  const { idea, fired } = checkAlerts(view.idea, result.data.price);
+  if (!fired.length) return;
+  commit(idea);
+  view.onAlert?.(idea, fired);
 }
 
 // Save a changed idea (the watchlist keeps it and syncs it) and redraw
@@ -742,11 +780,20 @@ function journalSubmit(kind, form, el) {
     }
     return;
   }
+  if (kind === 'alert') {
+    const target = parsePrice(form.get('price'));
+    if (target == null || target <= 0) return showError('Price should be a number, like 150.');
+    el.reset();
+    askForNotifications();
+    return commit(addAlert(view.idea, { dir: form.get('dir'), price: target }));
+  }
   if (kind === 'close') {
     const exit = priceField('exit');
     if (exit == null) return showError('Exit price should be a number, like 172.10.');
     view.journalOpen = null;
-    return commit(closeIdea(view.idea, { verdict: form.get('verdict'), lesson: String(form.get('lesson') ?? ''), exit }));
+    const start = parsePrice(form.get('start'));
+    const base = start != null && view.idea.entry == null ? { ...view.idea, entry: start } : view.idea;
+    return commit(closeIdea(base, { verdict: form.get('verdict'), lesson: String(form.get('lesson') ?? ''), exit }));
   }
 }
 

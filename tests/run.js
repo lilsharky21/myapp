@@ -819,5 +819,106 @@ await test('Sync works with either Blob setting Vercel adds (token or store id)'
 });
 
 // ---------------------------------------------------------------------------
+console.log('\nPicking tools');
+
+await test('Alerts fire once when the price crosses, then stay quiet', () => {
+  let i = J.addAlert(idea({}), { dir: 'above', price: 100, label: 'Your target' });
+  i = J.addAlert(i, { dir: 'below', price: 80 });
+  assert.equal(J.checkAlerts(i, 99).fired.length, 0);
+  const up = J.checkAlerts(i, 101);
+  assert.deepEqual(up.fired.map((a) => a.label), ['Your target']);
+  assert.equal(up.fired[0].firedPrice, 101);
+  assert.equal(J.checkAlerts(up.idea, 120).fired.length, 0); // already went off
+  assert.equal(J.checkAlerts(up.idea, 79).fired.length, 1); // the "below" one
+  assert.equal(J.recentAlerts(up.idea).length, 1);
+  assert.ok(J.timeline(up.idea).some((e) => e.kind === 'alert'));
+  assert.equal(J.removeAlert(up.idea, up.idea.alerts[0].id).alerts.length, 1);
+});
+
+await test('Position sizing keeps the loss at the stop to your risk limit', () => {
+  const r = J.sizePosition({ account: 10000, riskPct: 1, entry: 50, stop: 45 });
+  assert.equal(r.shares, 20);          // $100 risk ÷ $5 a share
+  close(r.cost, 1000);
+  close(r.pctOfAccount, 10);
+  close(r.lossAtStop, 100);
+  // A very tight stop can't buy more than the whole account
+  assert.equal(J.sizePosition({ account: 1000, riskPct: 5, entry: 100, stop: 99.9 }).shares, 10);
+  assert.equal(J.sizePosition({ account: 1000, riskPct: 1, entry: 100, stop: 110 }), null); // stop above price
+});
+
+await test('Track record: hit rate, vs the S&P 500, by conviction, lessons', async () => {
+  const { benchReturn } = await import('../js/tabs/journal.js');
+  const day = (d, c) => ({ t: Date.parse(d) / 1000, c });
+  const spy = [day('2026-01-02', 100), day('2026-03-02', 110), day('2026-06-01', 120)];
+  const closedIdea = (id, conviction, entry, exit, verdict, lesson, at) => idea({
+    id, ticker: id.toUpperCase(), conviction, entry, status: 'closed', createdAt: '2026-01-05T00:00:00.000Z',
+    closed: { at, verdict, lesson, exit, from: 'watching' },
+  });
+  const r = J.trackRecord([
+    closedIdea('a', 5, 100, 150, 'right', 'Be patient', '2026-06-01T20:00:00.000Z'),
+    closedIdea('b', 2, 100, 90, 'wrong', 'Check debt', '2026-03-02T20:00:00.000Z'),
+    idea({ id: 'c' }),
+  ], spy, benchReturn);
+  assert.equal(r.count, 2);
+  close(r.calledRate, 50);
+  close(r.winRate, 50);
+  close(r.avgReturn, 20);             // (+50% and −10%) ÷ 2
+  close(r.avgVsMarket, ((50 - 20) + (-10 - 10)) / 2);
+  assert.equal(r.best.idea.ticker, 'A');
+  assert.equal(r.worst.idea.ticker, 'B');
+  assert.deepEqual(r.byConviction.map((c) => c.level), [2, 5]);
+  assert.deepEqual(r.lessons.map((l) => l.ticker), ['A', 'B']); // newest first
+});
+
+await test('Quick score and screens pick the right stocks', async () => {
+  const { quickScore, runScreen } = await import('../js/screen.js');
+  const base = { pe: 20, ps: 5, revenueGrowth: 12, epsGrowth: 15, revenueGrowth5y: 10, grossMargin: 50, operatingMargin: 25, netMargin: 20, roe: 30, debtToEquity: 0.5, currentRatio: 1.5, return6m: 10, return1y: 20 };
+  const q = quickScore(base);
+  assert.ok(q.overall >= 65 && q.overall <= 80, `overall ${q.overall}`);
+  assert.equal(quickScore({}).overall, null); // not enough numbers
+  const stocks = [
+    { ...base, symbol: 'GROW', sector: 'Tech', revenueGrowth: 40 },
+    { ...base, symbol: 'CHEAP', sector: 'Energy', pe: 10 },
+    { ...base, symbol: 'DIV', sector: 'Utilities', dividendYield: 4 },
+  ];
+  assert.deepEqual(runScreen(stocks, { preset: 'growth' }).map((s) => s.symbol), ['GROW']);
+  assert.deepEqual(runScreen(stocks, { preset: 'cheap' }).map((s) => s.symbol), ['CHEAP']);
+  assert.deepEqual(runScreen(stocks, { preset: 'dividend' }).map((s) => s.symbol), ['DIV']);
+  assert.deepEqual(runScreen(stocks, { preset: 'top', sector: 'Energy' }).map((s) => s.symbol), ['CHEAP']);
+  assert.deepEqual(runScreen(stocks, { preset: 'top', maxPe: 15 }).map((s) => s.symbol), ['CHEAP']);
+});
+
+await test('/api/screen returns one set of the stock list, cached for 12 hours', async () => {
+  const { UNIVERSE } = await import('../js/universe.js');
+  const res = await call('screen', 'set=0');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.sets, Math.ceil(UNIVERSE.length / 23));
+  assert.equal(res.body.stocks.length, 23);
+  assert.equal(res.body.stocks[0].symbol, UNIVERSE[0][0]);
+  assert.equal(res.body.stocks[0].pe, 30.1);
+  assert.match(res.cache, /s-maxage=43200/);
+  assert.equal((await call('screen', 'set=99')).status, 400);
+});
+
+await test('Treasury yields: parse the CSV, a month-ago comparison, inversion', async () => {
+  const { parseTreasuryCsv, summarizeRates } = await import('../api/rates.js');
+  const csv = [
+    'Date,"1 Mo","2 Mo","3 Mo","6 Mo","1 Yr","2 Yr","3 Yr","5 Yr","7 Yr","10 Yr","20 Yr","30 Yr"',
+    '09/24/2026,4.40,4.38,4.35,4.20,4.05,4.10,4.00,3.95,4.00,4.02,4.40,4.35',
+    '08/20/2026,4.50,4.48,4.45,4.30,4.15,4.00,3.95,3.90,3.98,4.10,4.45,4.40',
+    '08/25/2026,4.45,4.43,4.40,4.25,4.10,4.05,3.97,3.92,3.99,4.05,4.42,4.38',
+  ].join('\n');
+  const rows = parseTreasuryCsv(csv);
+  assert.equal(rows[0].date, '2026-09-24'); // newest first
+  assert.deepEqual(rows[0].curve.map((p) => p.label), ['1M', '3M', '6M', '1Y', '2Y', '5Y', '10Y', '20Y', '30Y']);
+  const r = summarizeRates(rows);
+  assert.equal(r.monthAgo.date, '2026-08-25'); // the latest day at least 30 days earlier
+  close(r.key.find((k) => k.label === '10Y').change, 4.02 - 4.05);
+  assert.equal(r.inverted, true); // 2-year 4.10 > 10-year 4.02
+  close(r.spread2s10s, 4.02 - 4.10);
+  assert.deepEqual(parseTreasuryCsv('nonsense'), []);
+});
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

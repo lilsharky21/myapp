@@ -4,6 +4,7 @@
 
 import { f, esc, pill } from '../ui.js';
 import { position, timeline, needsReview, ideaReturn, startPrice, isoDay, VERDICTS } from '../journal.js';
+import { sizerHTML } from './sizer.js';
 
 export function journalTab(ctx) {
   const idea = ctx.idea;
@@ -18,6 +19,45 @@ export function journalTab(ctx) {
       </section>`;
   }
   return reviewCard(ctx) + positionCard(ctx) + closedCard(ctx) + writeBlock(ctx) + timelineBlock(ctx);
+}
+
+// Price alerts: "tell me when it goes above / below X"
+function alertsBlock(ctx) {
+  const idea = ctx.idea;
+  const price = ctx.q?.price;
+  const waiting = idea.alerts.filter((a) => !a.firedAt);
+  const fired = idea.alerts.filter((a) => a.firedAt).slice(-3).reverse();
+  const quick = [];
+  if (idea.target != null) quick.push([idea.target, 'Your target']);
+  for (const l of ctx.levels ?? []) {
+    if (l.kind === 'current' || !price || Math.abs(l.distancePct) < 1) continue;
+    quick.push([l.price, l.label]);
+  }
+  const quickHTML = quick.slice(0, 6).map(([p, label]) => {
+    const dir = price && p < price ? 'below' : 'above';
+    return `<button type="button" class="chip" data-action="alert-quick" data-dir="${dir}" data-price="${p.toFixed(2)}" data-label="${esc(label)}">${esc(label)} · ${f.price(p)}</button>`;
+  }).join('');
+  const row = (a) => `<li class="alert-row${a.firedAt ? ' fired' : ''}">
+      <span class="alert-dir ${a.dir === 'above' ? 'up' : 'down'}" aria-hidden="true">${a.dir === 'above' ? '↑' : '↓'}</span>
+      <span class="alert-text">${a.dir === 'above' ? 'Above' : 'Below'} <strong>${f.price(a.price)}</strong>${a.label ? ` <span class="muted">· ${esc(a.label)}</span>` : ''}
+        ${a.firedAt ? `<small>Went off ${f.dateShort(a.firedAt)} at ${f.price(a.firedPrice)}</small>` : price ? `<small>${f.pct(((a.price - price) / price) * 100)} from now</small>` : ''}</span>
+      <button type="button" class="tl-del" data-action="delete-alert" data-id="${a.id}" aria-label="Delete alert">×</button>
+    </li>`;
+  return `
+    <details class="card-plain journal-more"${ctx.view.journalOpen === 'alerts' ? ' open' : ''} data-open-key="alerts">
+      <summary>Price alerts${waiting.length ? ` <span class="count-pill">${waiting.length}</span>` : ''}</summary>
+      ${waiting.length || fired.length ? `<ul class="alert-list">${[...waiting, ...fired].map(row).join('')}</ul>` : ''}
+      <form class="alert-form" data-form="alert">
+        <div class="alert-fields">
+          <select name="dir" data-keep="al-dir"><option value="above">Goes above</option><option value="below">Drops below</option></select>
+          <input name="price" inputmode="decimal" placeholder="${price ? price.toFixed(2) : '0.00'}" autocomplete="off" data-keep="al-price">
+          <button type="submit" class="btn-primary small">Add</button>
+        </div>
+        <p class="form-error" data-error="alert" hidden></p>
+        ${quickHTML ? `<div class="chips alert-quick">${quickHTML}</div>` : ''}
+        <p class="muted-line">Alerts are checked whenever the app is open on any of your devices, and show up in Today. Phones don't let free web apps check in the background.</p>
+      </form>
+    </details>`;
 }
 
 function reviewCard(ctx) {
@@ -101,6 +141,9 @@ function writeBlock(ctx) {
       </form>
 
       ${closed ? '' : `
+      ${alertsBlock(ctx)}
+      ${sizerHTML(ctx, { open: ctx.view.journalOpen === 'size' })}
+
       <details class="card-plain journal-more"${ctx.view.journalOpen === 'trade' ? ' open' : ''} data-open-key="trade">
         <summary>Log a trade</summary>
         <form class="trade-form" data-form="trade">
@@ -125,6 +168,8 @@ function writeBlock(ctx) {
             <textarea name="lesson" rows="2" data-keep="lesson" placeholder="What would you do differently next time?"></textarea></label>
           <label class="field"><span class="stat-label">Exit price</span>
             <input name="exit" inputmode="decimal" placeholder="${priceHint}" autocomplete="off" data-keep="exit"></label>
+          ${startPrice(idea) == null ? `<label class="field"><span class="stat-label">Price when you started <span class="muted">(so your return can be worked out)</span></span>
+            <input name="start" inputmode="decimal" placeholder="Optional" autocomplete="off" data-keep="start"></label>` : ''}
           <p class="form-error" data-error="close" hidden></p>
           <button type="submit" class="btn-primary small">Close Idea</button>
         </form>
@@ -155,6 +200,9 @@ function timelineBlock(ctx) {
     } else if (e.kind === 'review') {
       icon = '✓';
       body = '<p class="tl-text">Reviewed. The thesis still holds.</p>';
+    } else if (e.kind === 'alert') {
+      icon = '!';
+      body = `<p class="tl-text"><strong>Alert:</strong> went ${e.dir} ${f.price(e.price)}${e.label ? ` (${esc(e.label)})` : ''}, at ${f.price(e.firedPrice)}.</p>`;
     } else if (e.kind === 'closed') {
       icon = '■';
       const v = VERDICTS.find(([key]) => key === e.verdict);

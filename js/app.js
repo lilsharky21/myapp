@@ -8,15 +8,20 @@
 import {
   loadIdeas, saveIdeas, createIdea, parsePrice, applyEdit, normalizeIdea, mergeJournals, journalKey,
   exportJournal, parseBackup, position, ideaReturn, needsReview, VERDICTS, CONVICTION_WORDS,
+  checkAlerts, recentAlerts, trackRecord,
 } from './journal.js';
 import { openStockPage, closeStockPage, refreshIdea, selectTab } from './stock.js';
-import { getQuote, passcodeHeaders } from './api.js';
+import { getQuote, getBenchmark, passcodeHeaders } from './api.js';
 import { diagnoseLocalAI, savedResearch } from './ai.js';
 import { setupCopyBox } from './ai-setup.js';
 import { macSetupCommand } from './mac-setup.js';
 import { pullJournal, pushJournal } from './sync.js';
 import { attachSearch } from './search.js';
-import { loadMarket, todayHTML } from './today.js';
+import { loadMarket, loadRates, todayHTML } from './today.js';
+import { loadScreen, discoverHTML, forgetScreen } from './screen.js';
+import { recordHTML } from './record.js';
+import { benchReturn } from './tabs/journal.js';
+import { installTipHTML, dismissInstallTip, registerServiceWorker } from './install.js';
 import { compareHTML, sortIdeas, refreshStale } from './compare.js';
 import { writeAllNotes } from './batch.js';
 import * as f from './format.js';
@@ -46,6 +51,10 @@ const state = {
   usedHistory: false,           // whether the browser's back button knows about the stock page
   sync: { status: 'idle', at: null },
   market: null,
+  rates: null,
+  spy: null,                    // S&P 500 daily prices, for "Your record"
+  discover: null,               // the Discover screen's state (null = closed)
+  stockFrom: 'list',            // where the stock page was opened from
   comparing: null,              // the background analysis for Compare
   analyzing: null,              // which ticker Compare is analyzing right now
 };
@@ -91,7 +100,22 @@ function render({ animateIn = false } = {}) {
     $('#list').innerHTML = shown.map((idea, k) => cardHTML(idea, k, animateIn)).join('');
   }
   renderPortfolio();
+  renderRecord();
   fillPrices(shown);
+}
+
+// "Your record" at the top of the Closed tab
+function renderRecord() {
+  const box = $('#record');
+  if (state.filter !== 'closed' || state.mode === 'compare') { box.innerHTML = ''; return; }
+  box.innerHTML = recordHTML(trackRecord(state.ideas, state.spy, benchReturn));
+  if (!state.spy) {
+    state.spy = [];
+    getBenchmark().then((r) => {
+      state.spy = r.status === 'live' || r.status === 'demo' ? r.data.candles : [];
+      if (state.filter === 'closed' && !state.openStockId) renderRecord();
+    });
+  }
 }
 
 function shownIdeas() {
@@ -109,6 +133,7 @@ function fillPrices(ideas, { fresh = false } = {}) {
       state.quotes.set(idea.ticker, { ...result.data, demo: result.status === 'demo' });
       if (state.mode === 'compare' && (!before || before.price !== result.data.price)) return scheduleRender();
       if (result.status !== 'live') return;
+      watchAlerts(idea.id, result.data.price);
       const el = document.querySelector(`[data-price-for="${CSS.escape(idea.ticker)}"]`);
       if (el) {
         const q = result.data;
@@ -119,6 +144,34 @@ function fillPrices(ideas, { fresh = false } = {}) {
       if (state.market) renderToday(); // big movers
     });
   }
+}
+
+// Price alerts: check every fresh price against the idea's alerts
+function watchAlerts(id, price) {
+  const idea = state.ideas.find((i) => i.id === id);
+  if (!idea) return;
+  const { idea: next, fired } = checkAlerts(idea, price);
+  if (!fired.length) return;
+  replaceIdea(next);
+  announceAlerts(next, fired);
+  scheduleRender();
+}
+
+// A notification (on computers that allow it) and a count in the tab title
+function announceAlerts(idea, fired) {
+  for (const a of fired) {
+    const text = `${idea.ticker} went ${a.dir} ${f.price(a.price)}${a.label ? ` (${a.label})` : ''}. Now ${f.price(a.firedPrice)}.`;
+    try {
+      if ('Notification' in window && Notification.permission === 'granted') new Notification('Price alert', { body: text, icon: 'icons/icon-192.png', tag: a.id });
+    } catch { /* some browsers only allow notifications from a service worker */ }
+  }
+  updateTitle();
+  if (state.market) renderToday();
+}
+
+function updateTitle() {
+  const count = state.ideas.reduce((n, i) => n + recentAlerts(i, 1).length, 0);
+  document.title = count ? `(${count}) Thesis Journal` : 'Thesis Journal';
 }
 
 // One redraw for many prices arriving at once
@@ -169,6 +222,8 @@ function cardHTML(idea, k, animateIn) {
 // Little flags: review due, earnings soon, latest note
 function badgesHTML(idea) {
   const badges = [];
+  const alerts = recentAlerts(idea);
+  if (alerts.length) badges.push(`<span class="badge alert">Alert: ${alerts.at(-1).dir} ${f.price(alerts.at(-1).price)}</span>`);
   if (needsReview(idea)) badges.push('<span class="badge due">Review due</span>');
   const next = idea.ratings?.nextEarnings;
   if (next && idea.status !== 'closed') {
@@ -636,7 +691,9 @@ sheet.addEventListener('submit', async (event) => {
     saved = applyEdit(state.ideas[index], fields);
     state.ideas[index] = saved;
   } else {
-    saved = createIdea(fields);
+    // "Price when added" left blank: use today's live price, so returns can be measured later
+    const live = state.quotes.get(fields.ticker);
+    saved = createIdea({ ...fields, entry: fields.entry ?? (live && !live.demo ? live.price : null) });
     state.ideas.unshift(saved);
   }
   persist();
@@ -672,8 +729,9 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && isSheetOpen()) return closeSheet();
   const typing = event.target.closest?.('input, textarea, select, [contenteditable]');
   if (typing || event.metaKey || event.ctrlKey || event.altKey || isSheetOpen()) return;
-  if (event.key === 'Escape' && state.openStockId) return goBack();
-  if (event.key === '/' && !state.openStockId) {
+  if (event.key === 'Escape' && (state.openStockId || state.discover)) return goBack();
+  if (event.key.toLowerCase() === 'd' && !state.openStockId && !state.discover) return openDiscover();
+  if (event.key === '/' && !state.openStockId && !state.discover) {
     event.preventDefault();
     $('#search').focus();
     return;
@@ -690,11 +748,16 @@ document.addEventListener('keydown', (event) => {
 function openStock(idea, { remember = true, tab } = {}) {
   if (!idea) return;
   stopCompare();
-  if (!state.openStockId) state.listScroll = window.scrollY;
+  if (!state.openStockId) {
+    state.stockFrom = state.discover ? 'discover' : 'list';
+    if (!state.discover) state.listScroll = window.scrollY;
+    else state.discover.scroll = window.scrollY;
+  }
   state.openStockId = idea.id;
   state.openIdea = idea;
   withTransition(() => {
     $('#list-view').hidden = true;
+    $('#discover-view').hidden = true;
     $('#stock-view').hidden = false;
     openStockPage($('#stock-view'), idea, {
       tab,
@@ -704,13 +767,14 @@ function openStock(idea, { remember = true, tab } = {}) {
       onChange: replaceIdea,
       onAdd: addFromPage,
       onOpenTicker: openTicker,
+      onAlert: announceAlerts,
     });
     window.scrollTo(0, 0);
   });
   // Let the browser's back button (and swipe-back on iPhone) return to the list
   if (remember) {
     try {
-      history.pushState({ stock: idea.id, ticker: idea.ticker }, '', `#${encodeURIComponent(idea.ticker)}`);
+      history.pushState({ stock: idea.id, ticker: idea.ticker, from: state.stockFrom }, '', `#${encodeURIComponent(idea.ticker)}`);
       state.usedHistory = true;
     } catch {
       state.usedHistory = false;
@@ -737,21 +801,30 @@ function closeStock() {
   if (!state.openStockId) return;
   state.openStockId = null;
   state.openIdea = null;
+  const toDiscover = state.stockFrom === 'discover' && state.discover;
   withTransition(() => {
     closeStockPage();
     $('#stock-view').hidden = true;
     $('#stock-view').innerHTML = '';
-    $('#list-view').hidden = false;
-    render();
-    window.scrollTo(0, state.listScroll);
+    if (toDiscover) {
+      $('#discover-view').hidden = false;
+      renderDiscover();
+      window.scrollTo(0, state.discover.scroll ?? 0);
+    } else {
+      $('#list-view').hidden = false;
+      render();
+      window.scrollTo(0, state.listScroll);
+    }
   });
+  if (toDiscover) return;
   if (state.mode === 'compare') startCompare();
   refreshToday();
 }
 
 function goBack() {
-  if (state.usedHistory && history.state?.stock) history.back();
-  else closeStock();
+  if (state.usedHistory && (history.state?.stock || history.state?.discover)) history.back();
+  else if (state.openStockId) closeStock();
+  else closeDiscover();
 }
 
 window.addEventListener('popstate', (event) => {
@@ -760,9 +833,118 @@ window.addEventListener('popstate', (event) => {
     const idea = state.ideas.find((i) => i.id === id);
     if (idea) openStock(idea, { remember: false });
     else if (event.state.ticker) openTicker(event.state.ticker, '', { remember: false });
-  } else if (!id) {
+  } else if (!id && state.openStockId) {
     closeStock();
+    if (!event.state?.discover && state.discover) closeDiscover();
+  } else if (!id && !event.state?.discover && state.discover) {
+    closeDiscover();
   }
+});
+
+// ---------- Discover: the stock screener ----------
+
+function openDiscover() {
+  stopCompare();
+  state.listScroll = window.scrollY;
+  state.discover ??= { preset: 'top', sector: '', maxPe: null, stocks: null, loaded: 0, total: 0, scroll: 0 };
+  withTransition(() => {
+    $('#list-view').hidden = true;
+    $('#discover-view').hidden = false;
+    renderDiscover();
+    window.scrollTo(0, 0);
+  });
+  try {
+    history.pushState({ discover: true }, '', '#discover');
+    state.usedHistory = true;
+  } catch { state.usedHistory = false; }
+  if (!state.discover.stocks && !state.discover.loading) startScreen();
+}
+
+function startScreen() {
+  const d = state.discover;
+  d.loading = new AbortController();
+  loadScreen({
+    signal: d.loading.signal,
+    onUpdate: (u) => {
+      Object.assign(d, u);
+      if (u.waiting) countdown(u.waiting);
+      if (!state.openStockId && state.discover === d) renderDiscover();
+    },
+  }).finally(() => { d.loading = null; });
+}
+
+// "next batch in 30s" counts down
+let countdownTimer = null;
+function countdown(seconds) {
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    const d = state.discover;
+    if (!d || !d.waiting) return clearInterval(countdownTimer);
+    d.waiting = Math.max(0, d.waiting - 1);
+    const line = document.querySelector('#discover-view .muted-line .spinner')?.parentElement;
+    if (line && d.waiting) line.innerHTML = `<span class="spinner"></span>Loaded ${d.loaded} of ${d.total} stocks · next batch in ${d.waiting}s (keeps you inside the free data limit)`;
+  }, 1000);
+}
+
+function closeDiscover() {
+  if (!state.discover) return;
+  state.discover.loading?.abort();
+  state.discover = null;
+  withTransition(() => {
+    $('#discover-view').hidden = true;
+    $('#discover-view').innerHTML = '';
+    $('#list-view').hidden = false;
+    render();
+    window.scrollTo(0, state.listScroll);
+  });
+}
+
+function renderDiscover() {
+  const root = $('#discover-view');
+  const scroll = root.querySelector('.table-wrap')?.scrollLeft ?? 0;
+  const focused = document.activeElement?.dataset?.filter;
+  root.innerHTML = discoverHTML(state.discover, new Set(state.ideas.filter((i) => i.status !== 'closed').map((i) => i.ticker)));
+  const wrap = root.querySelector('.table-wrap');
+  if (wrap) wrap.scrollLeft = scroll;
+  if (focused) {
+    const el = root.querySelector(`[data-filter="${focused}"]`);
+    el?.focus({ preventScroll: true });
+    if (el?.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length);
+  }
+}
+
+$('#discover-btn').addEventListener('click', openDiscover);
+$('#discover-view').addEventListener('click', (event) => {
+  const d = state.discover;
+  if (!d) return;
+  if (event.target.closest('[data-action="back"]')) return goBack();
+  if (event.target.closest('[data-action="refresh-screen"]')) {
+    forgetScreen();
+    d.loading?.abort();
+    Object.assign(d, { stocks: null, loaded: 0, total: 0, error: null, demo: false });
+    renderDiscover();
+    return startScreen();
+  }
+  if (event.target.closest('[data-action="show-all"]')) { d.showAll = true; return renderDiscover(); }
+  const chip = event.target.closest('[data-preset]');
+  if (chip) { d.preset = chip.dataset.preset; d.showAll = false; return renderDiscover(); }
+  const row = event.target.closest('tr[data-ticker]');
+  if (row) openTicker(row.dataset.ticker, row.dataset.name);
+});
+$('#discover-view').addEventListener('keydown', (event) => {
+  const row = event.target.closest('tr[data-ticker]');
+  if (row && event.key === 'Enter') openTicker(row.dataset.ticker, row.dataset.name);
+});
+$('#discover-view').addEventListener('input', (event) => {
+  const d = state.discover;
+  const key = event.target.dataset?.filter;
+  if (!d || !key) return;
+  if (key === 'sector') d.sector = event.target.value;
+  if (key === 'maxPe') {
+    const v = Number(event.target.value.replace(/[^0-9.]/g, ''));
+    d.maxPe = event.target.value.trim() && v > 0 ? v : null;
+  }
+  renderDiscover();
 });
 
 // ---------- Compare: analyze stocks in the background ----------
@@ -791,12 +973,15 @@ async function refreshToday({ force = false } = {}) {
   if (!force && Date.now() - marketAt < 110_000) return renderToday();
   marketAt = Date.now();
   const symbols = [...new Set(state.ideas.filter((i) => i.status !== 'closed').map((i) => i.ticker))];
-  state.market = await loadMarket(symbols);
+  const [market, rates] = await Promise.all([loadMarket(symbols), state.rates && Date.now() - state.rates.at < 3_600_000 ? state.rates : loadRates()]);
+  state.market = market;
+  state.rates = rates ? { ...rates, at: rates.at ?? Date.now() } : null;
   renderToday();
 }
 
 function renderToday() {
-  $('#today-body').innerHTML = todayHTML(state.market, { ideas: state.ideas, quotes: liveQuotes() });
+  const macNotes = isComputer() && state.market ? '<button type="button" class="text-btn small today-batch" data-action="open-batch">Write AI notes for your whole watchlist on this Mac →</button>' : '';
+  $('#today-body').innerHTML = todayHTML(state.market, { ideas: state.ideas, quotes: liveQuotes(), rates: state.rates, extra: macNotes });
   $('#today-updated').textContent = state.market?.data?.at ? `Updated ${f.ago(state.market.data.at)}` : '';
 }
 const liveQuotes = () => new Map([...state.quotes].filter(([, q]) => !q.demo));
@@ -806,6 +991,11 @@ $('#today-card').addEventListener('toggle', () => {
   if ($('#today-card').open) refreshToday();
 });
 $('#today-body').addEventListener('click', (event) => {
+  if (event.target.closest('[data-action="open-batch"]')) {
+    $('#connections').open = true;
+    $('#connections').scrollIntoView({ behavior: reduceMotion.matches ? 'auto' : 'smooth', block: 'start' });
+    return;
+  }
   const row = event.target.closest('[data-open]');
   if (row) openStock(state.ideas.find((i) => i.id === row.dataset.open), { tab: row.dataset.tab });
 });
@@ -997,6 +1187,14 @@ $('#date-line').textContent = new Intl.DateTimeFormat('en-US', { weekday: 'long'
 $('#today-card').open = prefs.today ?? true;
 document.body.classList.toggle('computer', isComputer());
 if (!state.canSave) { state.sync.status = 'cant-save'; showSaveStatus(); }
+$('#install-slot').innerHTML = installTipHTML();
+$('#install-slot').addEventListener('click', (event) => {
+  if (!event.target.closest('[data-action="dismiss-install"]')) return;
+  dismissInstallTip();
+  $('#install-slot').innerHTML = '';
+});
+registerServiceWorker();
+updateTitle();
 render({ animateIn: true });
 if ($('#today-card').open) { renderToday(); refreshToday({ force: true }); }
 syncNow();
@@ -1004,7 +1202,10 @@ if (state.mode === 'compare') startCompare();
 
 // Opening a link like ...#NVDA goes straight to that stock (on your list or not)
 const fromLink = decodeURIComponent(location.hash.slice(1)).toUpperCase();
-if (/^[A-Z0-9.\-:^=/]{1,15}$/.test(fromLink)) {
+if (fromLink === 'DISCOVER') {
+  try { history.replaceState(null, '', location.pathname + location.search); } catch { /* preview frames */ }
+  openDiscover();
+} else if (/^[A-Z0-9.\-:^=/]{1,15}$/.test(fromLink)) {
   try { history.replaceState(null, '', location.pathname + location.search); } catch { /* preview frames can block this */ }
   openTicker(fromLink);
 }

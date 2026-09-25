@@ -77,6 +77,7 @@ export function normalizeIdea(idea) {
     reviews: Array.isArray(idea.reviews) ? idea.reviews : [],     // [ISO date you reviewed it]
     reviewBy: idea.reviewBy ?? isoDay(Date.parse(idea.createdAt || Date.now()) + REVIEW_DAYS * DAY),
     closed: idea.closed ?? null,                                  // { at, verdict, lesson, exit, from }
+    alerts: Array.isArray(idea.alerts) ? idea.alerts : [],        // [{ id, dir: 'above'|'below', price, label, createdAt, firedAt }]
   };
 }
 
@@ -156,6 +157,59 @@ export function reopenIdea(idea) {
 }
 
 // ---------------------------------------------------------------------------
+// Price alerts (checked whenever the app refreshes prices)
+// ---------------------------------------------------------------------------
+
+export function addAlert(idea, { dir, price, label = '' }) {
+  const alert = { id: makeId('a'), dir, price, label, createdAt: new Date().toISOString(), firedAt: null };
+  return touch(idea, { alerts: [...idea.alerts, alert] });
+}
+
+export function removeAlert(idea, id) {
+  return touch(idea, { alerts: idea.alerts.filter((a) => a.id !== id) });
+}
+
+// Returns { idea, fired } where fired lists alerts the price just crossed.
+// Each alert fires once; idea is unchanged (same object) if nothing fired.
+export function checkAlerts(idea, price) {
+  if (price == null || !idea.alerts?.length) return { idea, fired: [] };
+  const fired = idea.alerts.filter((a) => !a.firedAt && (a.dir === 'above' ? price >= a.price : price <= a.price));
+  if (!fired.length) return { idea, fired };
+  const now = new Date().toISOString();
+  const ids = new Set(fired.map((a) => a.id));
+  const alerts = idea.alerts.map((a) => (ids.has(a.id) ? { ...a, firedAt: now, firedPrice: price } : a));
+  return { idea: { ...idea, alerts, updatedAt: now }, fired: fired.map((a) => ({ ...a, firedAt: now, firedPrice: price })) };
+}
+
+// Alerts that went off in the last `days` days (shown in Today and on the card)
+export function recentAlerts(idea, days = 3, now = Date.now()) {
+  return (idea.alerts ?? []).filter((a) => a.firedAt && now - Date.parse(a.firedAt) < days * DAY);
+}
+
+// ---------------------------------------------------------------------------
+// How much to buy: size a position so a stop-loss costs a set share of your account
+// ---------------------------------------------------------------------------
+
+// account: your total investing money · riskPct: most you'd lose on this one idea (1 = 1%)
+// entry: price you'd buy at · stop: price where you'd admit you're wrong and sell
+export function sizePosition({ account, riskPct, entry, stop }) {
+  if (!(account > 0) || !(riskPct > 0) || !(entry > 0) || !(stop >= 0) || stop >= entry) return null;
+  const riskMoney = account * (riskPct / 100);
+  const perShare = entry - stop;
+  // Never more than the whole account, whatever the stop says
+  const shares = Math.min(Math.floor(riskMoney / perShare), Math.floor(account / entry));
+  return {
+    riskMoney,
+    perShare,
+    shares,
+    cost: shares * entry,
+    pctOfAccount: ((shares * entry) / account) * 100,
+    lossAtStop: shares * perShare,
+    stopPct: (perShare / entry) * 100,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Reading the journal
 // ---------------------------------------------------------------------------
 
@@ -213,6 +267,49 @@ export function needsReview(idea, now = Date.now()) {
   return idea.status !== 'closed' && Boolean(idea.reviewBy) && idea.reviewBy <= isoDay(now);
 }
 
+// How good your calls have been, from your closed ideas.
+// spy: daily S&P 500 (SPY) candles, to compare each idea with the market over the same dates.
+// benchReturn(candles, fromIso, toIso) is passed in (it lives with the Journal tab).
+export function trackRecord(ideas, spy, benchReturn) {
+  const closed = ideas.filter((i) => i.status === 'closed' && i.closed);
+  const rows = closed.map((i) => {
+    const ret = ideaReturn(i, null);
+    const market = benchReturn ? benchReturn(spy, i.createdAt, i.closed.at) : null;
+    return {
+      idea: i,
+      ret,
+      market,
+      vsMarket: ret != null && market != null ? ret - market : null,
+      days: Math.max(0, Math.round((Date.parse(i.closed.at) - Date.parse(i.createdAt)) / DAY)),
+    };
+  });
+  const avg = (xs) => { const v = xs.filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+  const withReturn = rows.filter((r) => r.ret != null).sort((a, b) => b.ret - a.ret);
+  const verdicts = Object.fromEntries(VERDICTS.map(([key]) => [key, closed.filter((i) => i.closed.verdict === key).length]));
+  const byConviction = [1, 2, 3, 4, 5]
+    .map((level) => ({ level, list: rows.filter((r) => r.idea.conviction === level) }))
+    .filter((g) => g.list.length)
+    .map((g) => ({ level: g.level, count: g.list.length, avgReturn: avg(g.list.map((r) => r.ret)) }));
+  return {
+    count: closed.length,
+    verdicts,
+    calledRate: closed.length ? (verdicts.right / closed.length) * 100 : null,
+    winRate: withReturn.length ? (withReturn.filter((r) => r.ret > 0).length / withReturn.length) * 100 : null,
+    avgReturn: avg(rows.map((r) => r.ret)),
+    avgVsMarket: avg(rows.map((r) => r.vsMarket)),
+    beatMarket: rows.filter((r) => r.vsMarket != null).length
+      ? rows.filter((r) => r.vsMarket > 0).length / rows.filter((r) => r.vsMarket != null).length * 100
+      : null,
+    avgDays: avg(rows.map((r) => r.days)),
+    best: withReturn[0] ?? null,
+    worst: withReturn.length > 1 ? withReturn.at(-1) : null,
+    byConviction,
+    lessons: closed.filter((i) => i.closed.lesson)
+      .sort((a, b) => b.closed.at.localeCompare(a.closed.at))
+      .map((i) => ({ ticker: i.ticker, lesson: i.closed.lesson, at: i.closed.at, verdict: i.closed.verdict })),
+  };
+}
+
 // Everything that happened to an idea, newest first
 export function timeline(idea) {
   const events = [{ kind: 'created', at: idea.createdAt, price: idea.entry }];
@@ -220,6 +317,7 @@ export function timeline(idea) {
   for (const t of idea.trades) events.push({ kind: 'trade', ...t });
   for (const h of idea.thesisHistory) events.push({ kind: 'thesis', ...h });
   for (const at of idea.reviews) events.push({ kind: 'review', at });
+  for (const a of idea.alerts ?? []) if (a.firedAt) events.push({ kind: 'alert', ...a, at: a.firedAt });
   if (idea.closed) events.push({ kind: 'closed', ...idea.closed });
   return events.sort((a, b) => b.at.localeCompare(a.at));
 }

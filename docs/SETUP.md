@@ -130,7 +130,21 @@ your Home Screen.
 3. Each service should show **✓** (Gemini shows ○ "optional", which is fine). Anything else shows what to fix.
 4. Open any stock. The "Demo numbers" banner should be gone.
 
-Then, on your iPhone: tap **Share → Add to Home Screen** to use it like an app.
+## 9. Put it on your iPhone
+
+1. On your iPhone, open your app's **permanent** address (Vercel → your project →
+   **Domains**) in **Safari**. Other browsers on iPhone can't add apps to the Home Screen.
+2. Tap **Share** (the square with an arrow pointing up) → scroll down →
+   **Add to Home Screen** → **Add**.
+3. Open it from the new **Thesis** icon. It runs full screen, like an app.
+   Enter your passcode once, and your journal syncs in from your Mac.
+
+The app keeps its own files on your phone, so it opens quickly and still shows
+your journal without a signal. Prices and news need a connection.
+
+**About price alerts:** they're checked whenever the app is open (on your Mac or
+phone) and show up in Today. A free web app can't wake your phone in the
+background, so open the app to see if anything went off.
 
 ## Troubleshooting
 

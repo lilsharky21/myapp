@@ -36,11 +36,17 @@
       <p class="eyebrow" id="date-line"></p>
       <div class="hero-row">
         <h1 id="big-title">Watchlist</h1>
+        <button class="discover-btn" id="discover-btn" type="button">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7.5"/><path d="m13.2 6.8-2 4.4-4.4 2 2-4.4z"/></svg>Discover
+        </button>
         <button class="add-btn" id="add-btn" type="button" aria-label="Add a stock">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
     </div>
+
+    <!-- "Add to Home Screen" tip on iPhone (js/install.js) -->
+    <div id="install-slot"></div>
 
     <!-- Look up any stock, on your list or not ( / on a computer) -->
     <div class="search" id="search-box">
@@ -82,8 +88,9 @@
       </div>
     </div>
 
-    <!-- Your holdings added up (Own tab) -->
+    <!-- Your holdings added up (Own tab) and your track record (Closed tab) -->
     <div id="portfolio"></div>
+    <div id="record"></div>
 
     <!-- The cards get drawn in here by js/app.js -->
     <section class="list" id="list" aria-live="polite"></section>
@@ -105,10 +112,13 @@
         <p class="muted-line" id="backup-msg"></p>
       </div>
     </details>
-    <p class="footnote shortcuts-hint">Shortcuts: <kbd>/</kbd> search · <kbd>N</kbd> new idea · <kbd>1</kbd>–<kbd>9</kbd> tabs · <kbd>Esc</kbd> back</p>
+    <p class="footnote shortcuts-hint">Shortcuts: <kbd>/</kbd> search · <kbd>N</kbd> new idea · <kbd>D</kbd> discover · <kbd>1</kbd>–<kbd>9</kbd> tabs · <kbd>Esc</kbd> back</p>
   </main>
 
   </div>
+
+  <!-- ===== Discover: the stock screener (js/screen.js) ===== -->
+  <div id="discover-view" class="stock-page discover-page" hidden></div>
 
   <!-- ===== The stock page (filled in by js/stock.js) ===== -->
   <div id="stock-view" class="stock-page" hidden></div>
