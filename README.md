@@ -2,8 +2,17 @@
 
 A personal stock research notebook. Every stock you're watching gets a card with
 **why** you like it, what would prove you wrong, your target price, and how
-convinced you are. Tap a card for the full picture across eight tabs:
-Overview, Ratings, Technicals, Financials, Valuation, Earnings, Investors and News.
+convinced you are. Tap a card for the full picture across ten tabs:
+Overview, Journal, Research, Ratings, Technicals, Financials, Valuation, Earnings,
+Investors and News.
+
+**Also:**
+- **Today**: the big markets (S&P 500, Nasdaq, Dow, small caps, bonds, gold, oil, dollar, bitcoin, fear gauge), all 11 sectors, and what needs you: earnings coming up for your stocks, ideas due for a review, big moves, top headlines.
+- **Search any stock** by name or ticker and research it without adding it. Peers on the Valuation tab open the same way.
+- **Compare**: every idea in one sortable table (app score, Wall Street, AI, P/E, growth, DCF value, upside to your target, next earnings, conviction).
+- **Journal tab**: dated notes stamped with the price that day, trades you made (your position, average cost and profit/loss), thesis changes, review reminders every 90 days, and closing an idea with a verdict, a lesson, and how it did against the S&P 500.
+- **Sync**: the same watchlist and journal on your Mac and iPhone (through Blob storage in your own Vercel account), plus Export / Import backups.
+- **On the Mac**: write AI notes for your whole watchlist in one go, and keyboard shortcuts (`/` search, `N` new idea, `1`–`9` tabs, `Esc` back).
 
 ## Three ratings for every stock
 
@@ -23,10 +32,16 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 |---|---|
 | `index.html` | The structure of the page |
 | `styles.css` | The whole look: colors, spacing, dark mode, animations |
-| `js/app.js` | The watchlist, the add/edit sheet, moving between pages |
-| `js/journal.js` | Saving and loading your ideas on this device |
+| `js/app.js` | The watchlist, search, Today, Compare, the add/edit sheet, sync, backup, moving between pages |
+| `js/journal.js` | Your ideas and journal: notes, trades, positions, reviews, closing, merging copies from two devices, backups |
+| `js/sync.js` | Keeps your journal the same on every device |
+| `js/analysis.js` | Turns a stock's data into the ratings and the AI's reading material (shared by the stock page, Compare and batch notes) |
+| `js/today.js` | The Today card |
+| `js/compare.js` | The Compare table |
+| `js/search.js` | Stock search |
+| `js/batch.js` | Writing AI notes for the whole watchlist |
 | `js/stock.js` | The stock page: loads data, works out ratings, runs the AI |
-| `js/tabs/` | One file per tab (overview, ratings, technicals, financials, valuation, earnings, investors, news) |
+| `js/tabs/` | One file per tab (overview, journal, research, ratings, technicals, financials, valuation, earnings, investors, news) |
 | `js/ratings.js` | The app score, Piotroski F-Score and Altman Z-Score |
 | `js/valuation.js` | Discounted cash flow, reverse DCF, Graham number |
 | `js/research.js` | Scenario values and price levels for the research note (worked out by the app, not the AI) |
@@ -51,7 +66,7 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | Price, company info, key stats, analysts, earnings, insiders, news | Finnhub | `FINNHUB_API_KEY` |
 | Price history (charts and technicals) | Twelve Data | `TWELVEDATA_API_KEY` |
 | AI analyst | Ollama, running on your Mac (free, private) | None |
-| Research notes on your phone | Vercel Blob storage in your own account | `BLOB_READ_WRITE_TOKEN` (added by Vercel) |
+| Journal and research notes on every device | Vercel Blob storage in your own account | `BLOB_READ_WRITE_TOKEN` (added by Vercel) |
 | Optional cloud AI (18+) | Google Gemini free tier | `GEMINI_API_KEY` |
 
 ## Put it online (Vercel) and add your keys
@@ -87,8 +102,8 @@ npm test                 # run the checks
 1. ✅ Journal: watchlist, add/edit sheet, saving
 2. ✅ Deep stock page: chart, technicals, financials, earnings, investors, news, filings
 3. ✅ Ratings (Wall Street, app score, AI analyst), valuation tab, peers, risk, health scores, passcode
-4. Go live on Vercel with real data
-5. Journal extras: notes timeline, close a position with a verdict, backup/restore
-6. Markets: indices, sectors, crypto, FX, commodities
+4. ✅ Go live on Vercel with real data, AI on the Mac, Add to Home Screen icon
+5. ✅ Journal: notes timeline, trades and positions, reviews, close with a verdict, sync, backup
+6. ✅ Today: markets, sectors, your earnings, headlines · search · Compare
 7. Macro: rates, inflation, jobs, yield curve (FRED)
-8. Polish + Add to Home Screen icon
+8. Price alerts

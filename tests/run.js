@@ -377,7 +377,7 @@ const samples = {
     { period: '2026-06-30', actual: 1.6, estimate: 1.5, surprisePercent: 6.7 },
     { period: '2026-03-31', actual: 1.5, estimate: 1.52, surprisePercent: -1.3 },
   ],
-  'finnhub.io/api/v1/calendar/earnings': { earningsCalendar: [{ date: '2099-10-30', hour: 'amc', epsEstimate: 1.7, revenueEstimate: 1e11, quarter: 4, year: 2099 }] },
+  'finnhub.io/api/v1/calendar/earnings': { earningsCalendar: [{ symbol: 'AAPL', date: '2099-10-30', hour: 'amc', epsEstimate: 1.7, revenueEstimate: 1e11, quarter: 4, year: 2099 }] },
   'finnhub.io/api/v1/stock/insider-transactions': { data: [{ name: 'DOE JANE', change: -1000, transactionCode: 'S', transactionPrice: 181, transactionDate: '2026-09-01' }] },
   'finnhub.io/api/v1/company-news': [
     { headline: 'Apple does a thing', summary: 'More detail', source: 'Reuters', url: 'https://example.com/a', datetime: 1790000000 },
@@ -623,6 +623,177 @@ await test('Mac setup command: valid bash, both addresses, file copy matches', a
   writeFileSync('/tmp/thesis-setup-test.sh', SCRIPT_BODY);
   execFileSync('bash', ['-n', '/tmp/thesis-setup-test.sh']); // throws on a syntax error
   assert.equal(readFileSync(new URL('../setup/mac.sh', import.meta.url), 'utf8'), '#!/bin/bash\n' + SCRIPT_BODY);
+});
+
+// ---------------------------------------------------------------------------
+console.log('\nJournal');
+
+const J = await import('../js/journal.js');
+const idea = (fields) => J.normalizeIdea({ id: 'i-a', ticker: 'NVDA', company: '', thesis: '', conviction: 3, status: 'watching', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...fields });
+
+await test('Old saves get the new journal fields', () => {
+  const i = idea({});
+  assert.deepEqual([i.notes, i.trades, i.thesisHistory, i.reviews], [[], [], [], []]);
+  assert.equal(i.reviewBy, '2026-04-01'); // 90 days after it was added
+  assert.equal(i.closed, null);
+});
+
+await test('Position uses average cost; selling locks in profit', () => {
+  let i = idea({});
+  i = J.logTrade(i, { side: 'buy', shares: 10, price: 100, at: '2026-02-01T16:00:00.000Z' });
+  assert.equal(i.status, 'own'); // buying something you watched marks it owned
+  assert.equal(i.entry, 100);
+  i = J.logTrade(i, { side: 'buy', shares: 10, price: 200, at: '2026-03-01T16:00:00.000Z' });
+  i = J.logTrade(i, { side: 'sell', shares: 5, price: 300, at: '2026-04-01T16:00:00.000Z' });
+  const p = J.position(i, 250);
+  close(p.shares, 15);
+  close(p.avgCost, 150);
+  close(p.realized, 5 * (300 - 150));
+  close(p.unrealized, 15 * (250 - 150));
+  close(p.unrealizedPct, (100 / 150) * 100);
+  assert.equal(J.position(idea({}), 10), null);
+});
+
+await test('Notes, thesis history, review, close and reopen', () => {
+  let i = idea({ thesis: 'Old view', target: 100, sample: true });
+  i = J.addNote(i, '  Earnings beat  ', 123.45);
+  assert.equal(i.notes[0].text, 'Earnings beat');
+  assert.equal(i.notes[0].price, 123.45);
+  assert.equal(i.sample, false); // your own now
+  i = J.applyEdit(i, { thesis: 'New view', target: 150 });
+  assert.deepEqual([i.thesisHistory[0].thesis, i.thesisHistory[0].target], ['Old view', 100]);
+  const same = J.applyEdit(i, { thesis: 'New view', target: 150, bull: 'x' });
+  assert.equal(same.thesisHistory.length, 1); // only thesis/target changes are kept
+  i = J.markReviewed(i);
+  assert.ok(!J.needsReview(i));
+  assert.ok(J.needsReview(idea({}), Date.parse('2026-06-01')));
+  i = J.closeIdea(i, { verdict: 'right', lesson: ' Patience ', exit: 150 });
+  assert.equal(i.status, 'closed');
+  assert.equal(i.closed.lesson, 'Patience');
+  assert.ok(!J.needsReview(i, Date.parse('2030-01-01')));
+  close(J.ideaReturn({ ...i, entry: 100 }, 999), 50); // closed ideas use the exit price
+  assert.deepEqual(J.timeline(i).map((e) => e.kind).sort(), ['closed', 'created', 'note', 'review', 'thesis']);
+  assert.equal(J.reopenIdea(i).status, 'watching');
+});
+
+await test('Sync merge: newest edit wins, deletions stick, samples appear once', () => {
+  const a = idea({ id: 'i-1', thesis: 'phone', updatedAt: '2026-02-01T00:00:00.000Z' });
+  const b = idea({ id: 'i-1', thesis: 'mac', updatedAt: '2026-03-01T00:00:00.000Z' });
+  const gone = idea({ id: 'i-2', ticker: 'AMD' });
+  const merged = J.mergeJournals(
+    { ideas: [a, gone, idea({ id: 'i-s1', ticker: 'COST', sample: true })], deleted: {} },
+    { ideas: [b, idea({ id: 'i-s0', ticker: 'COST', sample: true })], deleted: { 'i-2': '2026-05-01T00:00:00.000Z' } },
+  );
+  assert.equal(merged.ideas.find((i) => i.id === 'i-1').thesis, 'mac');
+  assert.ok(!merged.ideas.some((i) => i.id === 'i-2'));
+  assert.deepEqual(merged.ideas.filter((i) => i.ticker === 'COST').map((i) => i.id), ['i-s0']);
+  // Merging is stable: doing it again changes nothing
+  assert.equal(J.journalKey(J.mergeJournals(merged, merged)), J.journalKey(merged));
+  // A sample is dropped once you have your own idea for that ticker
+  const own = J.mergeJournals({ ideas: [idea({ id: 'i-9', ticker: 'COST' })], deleted: {} }, merged);
+  assert.deepEqual(own.ideas.filter((i) => i.ticker === 'COST').map((i) => i.id), ['i-9']);
+  // Same edit time: fresher ratings win
+  const r1 = { ...b, ratings: { at: 5 } };
+  const r2 = { ...b, ratings: { at: 9 } };
+  assert.equal(J.mergeJournals({ ideas: [r1], deleted: {} }, { ideas: [r2], deleted: {} }).ideas[0].ratings.at, 9);
+});
+
+await test('Backup export reads back; junk files are refused', () => {
+  const journal = { ideas: [idea({})], deleted: { x: '2026-01-01' } };
+  const back = J.parseBackup(J.exportJournal(journal));
+  assert.equal(back.ideas[0].ticker, 'NVDA');
+  assert.deepEqual(back.deleted, journal.deleted);
+  assert.throws(() => J.parseBackup('{"hello":1}'), /backup/);
+  assert.throws(() => J.parseBackup('not json'), /backup/);
+});
+
+await test('Compare sorts by app score, missing numbers last', async () => {
+  const { sortIdeas } = await import('../js/compare.js');
+  const list = [
+    idea({ id: 'a', ticker: 'A', ratings: { app: { score: 40 } } }),
+    idea({ id: 'b', ticker: 'B' }),
+    idea({ id: 'c', ticker: 'C', ratings: { app: { score: 80 } } }),
+  ];
+  assert.deepEqual(sortIdeas(list, new Map(), 'app').map((i) => i.ticker), ['C', 'A', 'B']);
+  assert.deepEqual(sortIdeas(list, new Map(), 'app', 1).map((i) => i.ticker), ['A', 'C', 'B']);
+  const quotes = new Map([['A', { price: 10, changePct: -2 }], ['B', { price: 10, changePct: 5 }]]);
+  assert.deepEqual(sortIdeas(list, quotes, 'day').map((i) => i.ticker), ['B', 'A', 'C']);
+});
+
+await test('Closed idea vs the S&P 500 over the same dates', async () => {
+  const { benchReturn } = await import('../js/tabs/journal.js');
+  const day = (d, c) => ({ t: Date.parse(d) / 1000, c });
+  const spy = [day('2026-01-02', 100), day('2026-02-02', 105), day('2026-03-02', 110)];
+  close(benchReturn(spy, '2026-01-05T00:00:00Z', '2026-03-10T00:00:00Z'), 10);
+  assert.equal(benchReturn(null, '2026-01-01', '2026-02-01'), null);
+});
+
+await test('Analysis snapshot has what cards and Compare show', async () => {
+  const { analyze, snapshot } = await import('../js/analysis.js');
+  const d = demoData('NVDA');
+  const derived = analyze({ quote: d.quote, daily: { candles: d.daily }, bench: { candles: d.daily }, fund: d.fundamentals, fin: d.financials, peers: d.peers.peers, insidersLive: false });
+  const snap = snapshot(derived, { quote: d.quote, fund: d.fundamentals, demo: true });
+  assert.ok(snap.app.score >= 0 && snap.app.score <= 100);
+  assert.ok(['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'].includes(snap.app.grade));
+  assert.equal(snap.demo, true);
+  assert.equal(typeof snap.at, 'number');
+});
+
+// ---------------------------------------------------------------------------
+console.log('\nNew endpoints');
+
+await test('/api/journal saves privately and reads back; bad input refused', async () => {
+  const { useStorageForTests } = await import('../api/notes.js');
+  const files = new Map();
+  const calls = [];
+  useStorageForTests({
+    put: async (path, body, opts) => { calls.push([path, opts]); files.set(path, body); return { pathname: path }; },
+    get: async (path) => (files.has(path) ? { statusCode: 200, stream: new Response(files.get(path)).body } : null),
+  });
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  assert.equal((await call('journal', '')).status, 503);
+  process.env.BLOB_READ_WRITE_TOKEN = 'test-token';
+  assert.equal((await call('journal', '')).body.journal, null);
+  const body = JSON.stringify({ ideas: [{ id: 'i-1', ticker: 'NVDA' }], deleted: { 'i-2': '2026-01-01' } });
+  assert.equal((await call('journal', '', { method: 'PUT', body })).status, 200);
+  assert.deepEqual([calls[0][0], calls[0][1].access, calls[0][1].addRandomSuffix], ['journal/ideas.json', 'private', false]);
+  const got = await call('journal', '');
+  assert.equal(got.body.journal.ideas[0].ticker, 'NVDA');
+  assert.equal(got.cache, 'no-store');
+  assert.equal((await call('journal', '', { method: 'PUT', body: '{"ideas":"no"}' })).status, 400);
+  assert.equal((await call('journal', '', { method: 'PUT', body: '{oops' })).status, 400);
+  process.env.APP_PASSCODE = 'secret';
+  assert.equal((await call('journal', '')).status, 401);
+  delete process.env.APP_PASSCODE;
+});
+
+await test('/api/search finds stocks, US listings first', async () => {
+  samples['finnhub.io/api/v1/search'] = { count: 3, result: [
+    { description: 'APPLE INC', displaySymbol: 'AAPL.MX', symbol: 'AAPL.MX', type: 'Common Stock' },
+    { description: 'APPLE HOSPITALITY REIT', displaySymbol: 'APLE', symbol: 'APLE', type: 'REIT' },
+    { description: 'APPLE INC', displaySymbol: 'AAPL', symbol: 'AAPL', type: 'Common Stock' },
+  ] };
+  const res = await call('search', 'q=aapl');
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body.results.map((r) => r.symbol), ['AAPL', 'APLE', 'AAPL.MX']);
+  assert.equal(res.body.results[0].name, 'Apple Inc');
+  assert.equal((await call('search', 'q=')).status, 400);
+  assert.equal((await call('search', 'q=%3Cscript%3E')).status, 400);
+});
+
+await test('/api/market: markets, sectors, your earnings and headlines in one answer', async () => {
+  samples['finnhub.io/api/v1/news'] = [{ headline: 'Stocks rise', source: 'CNBC', url: 'https://example.com/n', datetime: 1790000000 }];
+  const res = await call('market', 'symbols=aapl,NVDA,bad!');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.markets.length, 10);
+  assert.equal(res.body.sectors.length, 11);
+  assert.equal(res.body.markets[0].label, 'S&P 500');
+  assert.deepEqual(res.body.earnings.map((e) => e.symbol), ['AAPL']); // only your stocks
+  assert.equal(res.body.news[0].time, 1790000000000);
+  assert.match(res.cache, /s-maxage=120/);
+  delete process.env.FINNHUB_API_KEY;
+  assert.equal((await call('market', 'symbols=AAPL')).status, 503);
+  process.env.FINNHUB_API_KEY = 'test-key';
 });
 
 // ---------------------------------------------------------------------------

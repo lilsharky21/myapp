@@ -7,14 +7,11 @@
 
 import * as api from './api.js';
 import * as f from './format.js';
-import { technicalSummary, riskStats, seasonality } from './indicators.js';
 import { PriceChart } from './charts.js';
-import { appScore, analystConsensus, piotroski, altmanZ, median } from './ratings.js';
-import { dcf, dcfInputs, impliedGrowth } from './valuation.js';
+import { analyze, snapshot, researchBundle } from './analysis.js';
 import { findEngines, savedResearch, runResearch, loadSharedNote, diagnoseLocalAI, productionUrl, warmUp } from './ai.js';
-import { scenarios, priceLevels, loadChecks, saveChecks } from './research.js';
-import { dotsHTML, esc, pick } from './ui.js';
-import { CONVICTION_WORDS } from './journal.js';
+import { loadChecks, saveChecks } from './research.js';
+import { dotsHTML, esc } from './ui.js';
 import { overviewTab } from './tabs/overview.js';
 import { researchTab } from './tabs/research.js';
 import { ratingsTab } from './tabs/ratings.js';
@@ -24,9 +21,12 @@ import { valuationTab, dcfResultHTML } from './tabs/valuation.js';
 import { earningsTab } from './tabs/earnings.js';
 import { investorsTab } from './tabs/investors.js';
 import { newsTab } from './tabs/news.js';
+import { journalTab } from './tabs/journal.js';
+import { addNote, logTrade, closeIdea, reopenIdea, markReviewed, removeEntry, parsePrice, position } from './journal.js';
 
 const TABS = [
   ['overview', 'Overview', overviewTab],
+  ['journal', 'Journal', journalTab],
   ['research', 'Research', researchTab],
   ['ratings', 'Ratings', ratingsTab],
   ['technicals', 'Technicals', technicalsTab],
@@ -47,12 +47,13 @@ let view = null; // everything about the page that's open right now
 // Opening and closing
 // ---------------------------------------------------------------------------
 
-export function openStockPage(root, idea, { onEdit, onBack, onRated }) {
+export function openStockPage(root, idea, { onEdit, onBack, onRated, onChange, onAdd, onOpenTicker, tab = 'overview' }) {
   closeStockPage();
   const saved = savedResearch(idea.ticker);
   view = {
-    root, idea, onEdit, onBack, onRated,
-    tab: 'overview',
+    root, idea, onEdit, onBack, onRated, onChange, onAdd, onOpenTicker,
+    tab,
+    journalOpen: null,
     range: '1D',
     mode: 'area',
     overlays: { volume: true, sma50: false, sma200: false, bollinger: false },
@@ -64,6 +65,7 @@ export function openStockPage(root, idea, { onEdit, onBack, onRated }) {
     checks: loadChecks(idea.ticker),
     chart: null,
     timer: null,
+    listeners: new AbortController(),
   };
   root.innerHTML = shellHTML(idea);
   renderTabs();
@@ -120,6 +122,7 @@ export function closeStockPage() {
   view.aiControl?.abort();
   view.chart?.destroy();
   view.observer?.disconnect();
+  view.listeners.abort();
   view = null;
 }
 
@@ -128,6 +131,7 @@ export function refreshIdea(idea) {
   if (!view || view.idea.id !== idea.id) return;
   view.idea = idea;
   view.root.querySelector('.st-ticker').textContent = idea.ticker;
+  view.root.querySelector('#nav-action').outerHTML = navAction(idea);
   view.root.querySelector('#st-dots').outerHTML = dotsHTML(idea.conviction, 'st-dots');
   renderPanel();
 }
@@ -189,46 +193,19 @@ const failed = (key) => {
 const anyLoading = () => CORE.some((key) => !view.data[key]);
 
 // Work out everything calculated from the raw data: technicals, risk,
-// valuation inputs and the app score
+// valuation inputs and the app score (see analysis.js)
 function derive() {
-  const d = view.derived;
-  const daily = ok('daily')?.candles;
-  const bench = ok('bench')?.candles;
-  if (daily !== d.dailyRef || bench !== d.benchRef) {
-    d.dailyRef = daily;
-    d.benchRef = bench;
-    d.tech = daily ? technicalSummary(daily) : null;
-    d.risk = daily ? riskStats(daily, bench) : null;
-    d.season = daily ? seasonality(daily) : null;
-  }
-  const fund = ok('fundamentals');
-  const fin = ok('financials');
-  const quote = ok('quote');
-  d.consensus = analystConsensus(fund?.recommendations);
-  d.val = fin ? dcfInputs({ financials: fin, metrics: fund?.metrics, quote }) : null;
+  const d = analyze({
+    quote: ok('quote'),
+    daily: ok('daily'),
+    bench: ok('bench'),
+    fund: ok('fundamentals'),
+    fin: ok('financials'),
+    peers: ok('peers')?.peers ?? [],
+    insidersLive: view.data.fundamentals?.status === 'live',
+  }, view.derived);
   // Slider starting points follow the data until you move a slider yourself
   if (d.val && !view.dcfTouched) view.dcf = { growth: d.val.growth, discount: d.val.discount, terminal: d.val.terminal };
-  d.dcfDefault = d.val ? dcf(d.val) : null;
-  d.scenarios = scenarios({
-    val: d.val,
-    quote,
-    metrics: fund?.metrics,
-    peers: ok('peers')?.peers ?? [],
-    peHistory: (fund?.metricSeries?.annual?.pe ?? []).map((p) => p?.v).filter((v) => v > 0),
-  });
-  d.levels = priceLevels({ quote, tech: d.tech, dcfValue: d.dcfDefault?.perShare });
-  d.score = appScore({
-    quote,
-    metrics: fund?.metrics,
-    financials: fin,
-    tech: d.tech,
-    risk: d.risk,
-    earnings: fund?.earnings,
-    recs: fund?.recommendations,
-    insiders: view.data.fundamentals?.status === 'live' ? fund?.insiders : null,
-    peers: ok('peers')?.peers ?? [],
-    valuation: d.val ? { ...d.val, dcf: d.dcfDefault } : null,
-  });
 }
 
 // What each tab gets to draw with
@@ -241,6 +218,7 @@ function ctx() {
     fund: ok('fundamentals'),
     fin: ok('financials'),
     news: ok('news'),
+    bench: ok('bench')?.candles ?? null,
     peers: ok('peers')?.peers ?? null,
     status: (key) => view.data[key]?.status,
     isLoading: (key) => !view.data[key],
@@ -260,17 +238,16 @@ function ctx() {
   };
 }
 
-// Save the three ratings on the idea, so the watchlist card can show them
+// Save the ratings and a few key numbers on the idea, for the watchlist card and Compare
 function reportRatings() {
-  const d = view.derived;
+  if (view.idea.transient) return;
   const demo = Object.values(view.data).some((r) => r?.status === 'demo');
-  view.onRated?.(view.idea.id, {
-    wallStreet: d.consensus?.label ?? null,
-    app: d.score?.overall != null ? { label: d.score.label, grade: d.score.grade, score: d.score.overall } : null,
-    ai: view.ai.state === 'done' ? view.ai.entry.result.rating : null,
+  view.onRated?.(view.idea.id, snapshot(view.derived, {
+    quote: ok('quote'),
+    fund: ok('fundamentals'),
+    aiRating: view.ai.state === 'done' ? view.ai.entry.result.rating : null,
     demo,
-    at: Date.now(),
-  });
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -290,7 +267,11 @@ async function runAI() {
     if (view !== v) return;
     v.ai.progress = 'Reading every tab of data. This can take up to a minute.';
     updateAiProgress();
-    const entry = await runResearch(v.idea.ticker, researchBundle(ctx()), {
+    const entry = await runResearch(v.idea.ticker, researchBundle({
+      ...ctx(),
+      insidersLive: v.data.fundamentals?.status === 'live',
+      demo: Object.values(v.data).some((x) => x?.status === 'demo'),
+    }), {
       signal: v.aiControl.signal,
       onProgress: (chars) => {
         if (view !== v) return;
@@ -317,100 +298,6 @@ function updateAiProgress() {
   view?.root.querySelectorAll('[data-ai-progress]').forEach((el) => (el.textContent = view.ai.progress));
 }
 
-// Everything the AI reads, kept compact (numbers rounded to 4 digits)
-function researchBundle(c) {
-  const r = (v) => (v == null || !Number.isFinite(v) ? null : Number(v.toPrecision(4)));
-  const m = c.fund?.metrics ?? {};
-  const a = c.fin?.annual;
-  const q = c.fin?.quarterly;
-  const t = c.tech;
-  const last = (arr, n = 5) => arr?.slice(-n).map(r);
-  const recs = c.fund?.recommendations ?? [];
-  const older = recs.length >= 3 ? analystConsensus(recs.slice(0, recs.length - 2)) : null;
-  const trades = view.data.fundamentals?.status === 'live' ? c.fund?.insiders ?? [] : null;
-  const fscore = piotroski(a);
-  const z = altmanZ(a, c.q?.marketCap);
-  const implied = c.val && c.q?.price ? impliedGrowth(c.q.price, c.val) : null;
-  const perf = (label) => r(t?.performance.find((p) => p.label === label)?.value);
-  const value = (list) => list.reduce((s, x) => s + Math.abs(x.change) * (x.transactionPrice || 0), 0);
-
-  return {
-    dataMode: Object.values(view.data).some((x) => x?.status === 'demo') ? 'demo' : 'live',
-    ticker: c.idea.ticker,
-    company: c.q?.name || c.idea.company || null,
-    industry: c.q?.industry ?? null,
-    asOf: new Date().toISOString().slice(0, 10),
-    price: { price: r(c.q?.price), changeTodayPct: r(c.q?.changePct), marketCap: r(c.q?.marketCap), high52w: r(pick(m, '52WeekHigh')), low52w: r(pick(m, '52WeekLow')) },
-    keyStats: {
-      peTTM: r(pick(m, 'peTTM', 'peExclExtraTTM')), psTTM: r(pick(m, 'psTTM')), pb: r(pick(m, 'pbQuarterly', 'pbAnnual')),
-      epsTTM: r(pick(m, 'epsTTM')), grossMarginPct: r(pick(m, 'grossMarginTTM')), operatingMarginPct: r(pick(m, 'operatingMarginTTM')),
-      netMarginPct: r(pick(m, 'netProfitMarginTTM')), roePct: r(pick(m, 'roeTTM')), revenueGrowthYoYPct: r(pick(m, 'revenueGrowthTTMYoy')),
-      epsGrowthYoYPct: r(pick(m, 'epsGrowthTTMYoy')), revenueGrowth5yPct: r(pick(m, 'revenueGrowth5Y')),
-      debtToEquity: r(pick(m, 'totalDebt/totalEquityQuarterly', 'totalDebt/totalEquityAnnual')), currentRatio: r(pick(m, 'currentRatioQuarterly', 'currentRatioAnnual')),
-      beta: r(pick(m, 'beta')), dividendYieldPct: r(pick(m, 'dividendYieldIndicatedAnnual')),
-    },
-    technicals: t ? {
-      trend: t.trend.label, rsi14: r(t.rsi.value), rsiState: t.rsi.state, macd: t.macd.state,
-      vs50DayAvgPct: r(t.averages[1].distance), vs200DayAvgPct: r(t.averages[2].distance),
-      cross: t.cross ? `${t.cross.kind} cross ${t.cross.daysAgo} days ago` : null,
-      returnsPct: { '1M': perf('1M'), '6M': perf('6M'), '1Y': perf('1Y'), '3Y': perf('3Y') },
-      volatility30dPct: r(t.volatility30), fromHigh52wPct: r(t.range52.fromHigh),
-    } : null,
-    risk: c.risk ? { beta1y: r(c.risk.beta), sharpe1y: r(c.risk.sharpe), maxDrawdown5yPct: r(c.risk.maxDrawdown.value), return1yPct: r(c.risk.return1y), sp500Return1yPct: r(c.risk.benchReturn1y) } : null,
-    annualFinancials: a?.periods.length ? {
-      years: a.periods.slice(-5).map((p) => p.label),
-      revenue: last(a.rows.revenue), netIncome: last(a.rows.netIncome), freeCashFlow: last(a.rows.freeCashFlow),
-      operatingMarginPct: last(a.ratios.operatingMargin), roicPct: last(a.ratios.roic),
-      cash: last(a.rows.cash), longTermDebt: last(a.rows.longTermDebt),
-    } : null,
-    latestQuarter: q?.periods.length ? { period: q.periods.at(-1).label, revenueYoYPct: r(q.growth.revenue.at(-1)), epsYoYPct: r(q.growth.eps.at(-1)) } : null,
-    health: { piotroskiFScore: fscore ? `${fscore.score} of ${fscore.known}` : null, altmanZ: z ? `${z.z.toFixed(2)} (${z.zone})` : null },
-    valuation: {
-      dcfValuePerShare: r(c.dcfDefault?.perShare),
-      dcfAssumptions: c.val ? `${c.val.growth}% growth for 5 years fading to 2.5%, 9% discount rate` : null,
-      priceImpliesGrowthPct: implied && !implied.bound ? r(implied.value) : null,
-      fcfYieldPct: c.val?.fcf != null && c.q?.marketCap ? r((c.val.fcf / c.q.marketCap) * 100) : null,
-      peerMedianPE: r(median((c.peers ?? []).map((p) => (p.pe > 0 ? p.pe : null)))),
-      peerMedianPS: r(median((c.peers ?? []).map((p) => p.ps))),
-    },
-    earnings: {
-      lastFour: (c.fund?.earnings ?? []).slice(-4).map((e) => ({ period: e.period, actual: e.actual, estimate: e.estimate, surprisePct: r(e.surprisePercent) })),
-      next: c.fund?.nextEarnings?.date ?? null,
-    },
-    analysts: recs.length ? {
-      consensus: c.consensus?.label ?? null,
-      latest: recs.at(-1),
-      buySharePct: r(c.consensus?.buyShare),
-      buySharePct2MonthsEarlier: r(older?.buyShare),
-    } : null,
-    insiders12m: trades ? {
-      openMarketBuys: trades.filter((x) => x.transactionCode === 'P').length,
-      openMarketSells: trades.filter((x) => x.transactionCode === 'S').length,
-      valueBought: r(value(trades.filter((x) => x.transactionCode === 'P'))),
-      valueSold: r(value(trades.filter((x) => x.transactionCode === 'S'))),
-    } : 'not available',
-    headlines: (c.news?.news ?? []).slice(0, 12).map((n) => ({ date: new Date(n.time).toISOString().slice(0, 10), source: n.source, headline: n.headline })),
-    appScore: c.score?.overall != null ? {
-      overall: c.score.overall,
-      label: c.score.label,
-      // Each factor with the measurements behind it and how each scored (0-100)
-      factors: c.score.factors.map((x) => ({
-        factor: x.name, grade: x.grade, score: x.score,
-        inputs: x.inputs.map((i) => `${i.label}: ${i.value} (scored ${i.score})`),
-      })),
-    } : null,
-    scenarios: c.scenarios ? {
-      method: c.scenarios.method,
-      cases: c.scenarios.cases.map((s) => ({ case: s.key, value: r(s.value), vsPricePct: r(s.changePct), assumptions: s.assumptions })),
-    } : null,
-    priceLevels: c.levels.map((l) => ({ level: l.label, price: r(l.price), vsPricePct: r(l.distancePct) })),
-    investorThesis: {
-      thesis: c.idea.thesis || null, bullCase: c.idea.bull || null, bearCase: c.idea.bear || null,
-      targetPrice: c.idea.target, entryPrice: c.idea.entry, conviction: CONVICTION_WORDS[c.idea.conviction - 1],
-    },
-  };
-}
-
 // ---------------------------------------------------------------------------
 // The top of the page
 // ---------------------------------------------------------------------------
@@ -422,7 +309,7 @@ function shellHTML(idea) {
         <svg viewBox="0 0 12 20" aria-hidden="true"><path d="M10 2 2 10l8 8"/></svg>Watchlist
       </button>
       <span class="nav-title">${esc(idea.ticker)}</span>
-      <button type="button" class="text-btn" data-action="edit">Edit</button>
+      ${navAction(idea)}
     </nav>
 
     <header class="quote-head" style="view-transition-name:${idea.id}">
@@ -465,6 +352,12 @@ function shellHTML(idea) {
       Prices from Twelve Data · Company data from Finnhub · Filings from SEC EDGAR ·
       Charts by <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a>
     </p>`;
+}
+
+function navAction(idea) {
+  return idea.transient
+    ? '<button type="button" class="text-btn strong" data-action="add-to-list" id="nav-action">Add</button>'
+    : '<button type="button" class="text-btn" data-action="edit" id="nav-action">Edit</button>';
 }
 
 function renderHeader() {
@@ -623,14 +516,23 @@ function renderPanel() {
   const scrollers = sameTab ? [...panel.querySelectorAll('.table-wrap')].map((el) => el.scrollLeft) : [];
   const open = sameTab ? [...panel.querySelectorAll('details')].map((el) => el.open) : [];
   const focusedSlider = document.activeElement?.dataset?.dcf;
+  // Journal forms: keep what you've typed while new data redraws the tab
+  const kept = sameTab ? [...panel.querySelectorAll('[data-keep]')].map((el) => [el.dataset.keep, el.type === 'radio' ? el.checked : el.value]) : [];
+  const focusedKeep = document.activeElement?.dataset?.keep;
   panel.innerHTML = TABS.find(([key]) => key === view.tab)[2](ctx());
   view.renderedTab = view.tab;
   // Statement tables start scrolled to the newest period (on the right)
   panel.querySelectorAll('.table-wrap').forEach((el, i) => {
     el.scrollLeft = scrollers[i] ?? (el.classList.contains('from-left') ? 0 : el.scrollWidth);
   });
-  panel.querySelectorAll('details').forEach((el, i) => (el.open = open[i] ?? false));
+  panel.querySelectorAll('details').forEach((el, i) => { if (!el.dataset.openKey) el.open = open[i] ?? false; });
   if (focusedSlider) panel.querySelector(`[data-dcf="${focusedSlider}"]`)?.focus({ preventScroll: true });
+  for (const [key, value] of kept) {
+    const el = panel.querySelector(`[data-keep="${key}"]`);
+    if (!el) continue;
+    if (el.type === 'radio') el.checked = value; else el.value = value;
+  }
+  if (focusedKeep) panel.querySelector(`[data-keep="${focusedKeep}"]`)?.focus({ preventScroll: true });
   updateAiProgress();
 }
 
@@ -639,13 +541,27 @@ function renderPanel() {
 // ---------------------------------------------------------------------------
 
 function wire(root) {
+  // Listeners are removed when the page closes (the same element is reused for the next stock)
+  const signal = view.listeners.signal;
   root.addEventListener('click', (event) => {
+    const peer = event.target.closest('tr[data-ticker]');
+    if (peer && view) return view.onOpenTicker?.(peer.dataset.ticker, peer.dataset.name);
     const el = event.target.closest('button, [data-goto]');
     if (!el || !view) return;
     const action = el.dataset.action;
 
     if (action === 'back') return view.onBack();
     if (action === 'edit') return view.onEdit(view.idea);
+    if (action === 'add-to-list') return view.onAdd?.(view.idea);
+    if (action === 'reviewed') return commit(markReviewed(view.idea));
+    if (action === 'reopen') return commit(reopenIdea(view.idea));
+    if (action === 'delete-entry') return commit(removeEntry(view.idea, el.dataset.id));
+    if (action === 'show-close') {
+      view.journalOpen = 'close';
+      renderPanel();
+      view.root.querySelector('[data-open-key="close"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      return;
+    }
     if (action === 'run-ai') return runAI();
     if (action === 'stop-ai') return view.aiControl?.abort();
     if (action === 'recheck-ai') return recheckAI();
@@ -712,7 +628,7 @@ function wire(root) {
       view.fin[control.dataset.control] = el.dataset.value;
       renderPanel();
     }
-  });
+  }, { signal });
 
   // Ticking an item on the "before you buy" checklist
   root.addEventListener('change', (event) => {
@@ -722,7 +638,7 @@ function wire(root) {
     saveChecks(view.idea.ticker, view.checks);
     const done = view.root.querySelector('#checks-done');
     if (done) done.textContent = checksDoneText();
-  });
+  }, { signal });
 
   // Dragging a DCF slider updates the answer live
   root.addEventListener('input', (event) => {
@@ -732,7 +648,23 @@ function wire(root) {
     view.dcfTouched = true;
     root.querySelector(`#dcf-${key}-out`).textContent = `${event.target.value}%`;
     root.querySelector('#dcf-out').innerHTML = dcfResultHTML(ctx());
-  });
+  }, { signal });
+
+  // Remember which journal drawer is open, so redraws keep it open
+  root.addEventListener('toggle', (event) => {
+    const key = event.target.dataset?.openKey;
+    if (!key || !view) return;
+    if (event.target.open) view.journalOpen = key;
+    else if (view.journalOpen === key) view.journalOpen = null;
+  }, { capture: true, signal });
+
+  // Journal forms: note, trade, close
+  root.addEventListener('submit', (event) => {
+    const kind = event.target.dataset.form;
+    if (!view || !['note', 'trade', 'close'].includes(kind)) return;
+    event.preventDefault();
+    journalSubmit(kind, new FormData(event.target), event.target);
+  }, { signal });
 
   // Passcode box
   root.addEventListener('submit', (event) => {
@@ -745,7 +677,7 @@ function wire(root) {
     view.derived = {};
     root.querySelector('#notice').innerHTML = '';
     loadEverything();
-  });
+  }, { signal });
 
   // Show the ticker in the top bar once the big header scrolls away
   view.observer = new IntersectionObserver(
@@ -753,6 +685,69 @@ function wire(root) {
     { rootMargin: '-52px 0px 0px 0px' },
   );
   view.observer.observe(root.querySelector('.st-ticker'));
+}
+
+// Save a changed idea (the watchlist keeps it and syncs it) and redraw
+function commit(idea) {
+  view.idea = idea;
+  view.onChange?.(idea);
+  renderPanel();
+}
+
+// Switch tab by number (keyboard shortcuts 1-9 on a computer)
+export function selectTab(n) {
+  const tab = TABS[n - 1];
+  if (!view || !tab) return;
+  view.root.querySelector(`[data-tab="${tab[0]}"]`)?.click();
+}
+
+function journalSubmit(kind, form, el) {
+  const price = ok('quote')?.price ?? null;
+  const showError = (message) => {
+    const box = el.querySelector(`[data-error="${kind}"]`);
+    if (box) { box.hidden = !message; box.textContent = message; }
+    return null;
+  };
+  // Typed prices fall back to today's price
+  const priceField = (name) => {
+    const text = String(form.get(name) ?? '').trim();
+    return text ? parsePrice(text) : price;
+  };
+
+  if (kind === 'note') {
+    const text = String(form.get('text') ?? '').trim();
+    if (!text) return;
+    el.reset();
+    return commit(addNote(view.idea, text, price));
+  }
+  if (kind === 'trade') {
+    const side = form.get('side');
+    const shares = parsePrice(form.get('shares'));
+    const tradePrice = priceField('price');
+    const date = String(form.get('date') || '');
+    if (!shares || shares <= 0) return showError('Shares should be a number, like 10.');
+    if (tradePrice == null || tradePrice <= 0) return showError('Price should be a number, like 172.10.');
+    const held = position(view.idea)?.shares ?? 0;
+    if (side === 'sell' && shares > held + 1e-9) return showError(`You've only logged ${held} shares.`);
+    const today = new Date().toISOString().slice(0, 10);
+    const at = date && date !== today ? `${date}T16:00:00.000Z` : new Date().toISOString();
+    el.reset();
+    view.journalOpen = null;
+    const next = logTrade(view.idea, { side, shares, price: tradePrice, at });
+    commit(next);
+    // Sold everything? Offer to close it with a verdict
+    if (side === 'sell' && position(next)?.shares === 0) {
+      view.journalOpen = 'close';
+      renderPanel();
+    }
+    return;
+  }
+  if (kind === 'close') {
+    const exit = priceField('exit');
+    if (exit == null) return showError('Exit price should be a number, like 172.10.');
+    view.journalOpen = null;
+    return commit(closeIdea(view.idea, { verdict: form.get('verdict'), lesson: String(form.get('lesson') ?? ''), exit }));
+  }
 }
 
 function checksDoneText() {

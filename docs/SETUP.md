@@ -64,13 +64,16 @@ That's it: no commands to retype after restarts. To undo it, run
 loads into memory. The app starts loading it as soon as you open a stock, and
 keeps it loaded for 30 minutes.
 
-**Note sync, so the phone shows the Mac's research (about 2 minutes):**
+**Sync, so your phone shows the same journal and the Mac's research (about 2 minutes):**
 1. In Vercel, open your project → **Storage** → **Create** → **Blob**.
 2. Give it any name and **Connect** it to your project. Vercel adds a setting
    called `BLOB_READ_WRITE_TOKEN` for you, so there's nothing to copy.
 3. Redeploy (see step 7).
 
-Notes are stored as private files that only your app can read.
+Your journal and notes are stored as private files that only your app can read.
+Once it's on, the bottom of the watchlist says **Synced across your devices**.
+Blob is like a private folder in your Vercel account: the app saves a file
+there, and your other devices read it.
 
 **Optional, 18+ only: Gemini.** If you're 18 or older, a free Gemini key from
 aistudio.google.com/apikey (added as `GEMINI_API_KEY`) lets the phone write
@@ -95,7 +98,7 @@ devices. Without one, anyone who found your web address could use up your free l
    |---|---|
    | `FINNHUB_API_KEY` | your Finnhub key |
    | `TWELVEDATA_API_KEY` | your Twelve Data key |
-   | `SEC_USER_AGENT` | `Thesis Journal you@example.com` (your email) |
+   | `SEC_USER_AGENT` | `Thesis Journal you@example.com` (your email; spaces are fine in the value box) |
    | `APP_PASSCODE` | the passcode you made up |
 
    Leave all environments ticked (Production, Preview, Development).
@@ -130,4 +133,5 @@ Then, on your iPhone: tap **Share → Add to Home Screen** to use it like an app
 | Asked for a passcode | Type the `APP_PASSCODE` you chose. |
 | Data connections says "Available once the app is on Vercel" | You're on the preview link, not your Vercel address. |
 | Research says "No AI" on the Mac | Make sure Ollama is open (menu-bar llama), you ran step 4.3 with your exact address, and you restarted Ollama. |
-| Phone doesn't show the Mac's note | Check **Note sync** is ✓ in Data connections, and write the note on the Mac *after* turning it on. |
+| Phone doesn't show the Mac's note | Check **Sync** is ✓ in Data connections, and write the note on the Mac *after* turning it on. |
+| Phone and Mac show different watchlists | Check **Sync** is ✓, then close and reopen the app on both. The bottom of the watchlist should say "Synced across your devices". |

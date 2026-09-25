@@ -153,12 +153,13 @@ function peersBlock(ctx) {
           <table class="fin-table peers-table">
             <thead><tr><th scope="col">Company</th>${cols.map(([l]) => `<th scope="col">${l}</th>`).join('')}</tr></thead>
             <tbody>
-              ${all.map((p) => `<tr class="${p.self ? 'self' : ''}"><th scope="row">${esc(p.symbol)}${p.name && !p.self ? `<span class="help">${esc(p.name)}</span>` : ''}</th>${cols.map(([, k, fmt]) => `<td>${fmt(p[k])}</td>`).join('')}</tr>`).join('')}
+              ${all.map((p) => `<tr class="${p.self ? 'self' : 'peer-row'}"${p.self ? '' : ` data-ticker="${esc(p.symbol)}" data-name="${esc(p.name ?? '')}" tabindex="0"`}><th scope="row">${esc(p.symbol)}${p.name && !p.self ? `<span class="help">${esc(p.name)}</span>` : ''}</th>${cols.map(([, k, fmt]) => `<td>${fmt(p[k])}</td>`).join('')}</tr>`).join('')}
               <tr class="median"><th scope="row">Peer median</th>${cols.map(([, k, fmt]) => `<td>${fmt(med(k))}</td>`).join('')}</tr>
             </tbody>
           </table>
         </div>
       </div>
+      <p class="fineprint">Tap a peer to research it.</p>
       ${peChart.length > 1 ? `
         <div class="card-plain chart-block">
           <p class="stat-label">P/E compared</p>

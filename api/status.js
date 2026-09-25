@@ -25,7 +25,7 @@ export async function GET(request) {
         // Reading a note that doesn't exist proves the storage answers
         const { get } = await storage();
         await get('notes/__check__.json', { access: 'private', useCache: false });
-      }, { missingMessage: 'Turn on note sync so your phone shows research from your Mac: Vercel → Storage → Create → Blob → connect, then redeploy.' }),
+      }, { missingMessage: "Turn on sync so your phone shows the same journal and your Mac's research: Vercel → Storage → Create → Blob → connect, then redeploy (see docs/SETUP.md)." }),
     ]);
     return Response.json({
       finnhub,
