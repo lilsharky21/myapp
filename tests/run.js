@@ -11,6 +11,7 @@ import { buildStatements } from '../lib/statements.js';
 import { dcf, impliedGrowth, graham, dcfInputs } from '../js/valuation.js';
 import { scale, grade, appScore, analystConsensus, piotroski, altmanZ, FACTORS } from '../js/ratings.js';
 import { normalize, buildPrompt } from '../js/ai.js';
+import { scenarios, priceLevels } from '../js/research.js';
 import { demoData } from '../js/demo.js';
 
 let passed = 0;
@@ -146,6 +147,32 @@ await test('Graham number', () => {
   assert.equal(graham(-1, 25), null);
 });
 
+await test('Scenarios: bear < base < bull, and base equals the default DCF', () => {
+  const val = { fcf: 100, shares: 10, netCash: 0, growth: 10, discount: 9, terminal: 2.5 };
+  const s = scenarios({ val, quote: { price: 150 } });
+  assert.equal(s.method, 'DCF');
+  const [bear, base, bull] = s.cases.map((c) => c.value);
+  assert.ok(bear < base && base < bull);
+  close(base, dcf(val).perShare);
+  close(s.cases[1].changePct, (base / 150 - 1) * 100);
+});
+
+await test('Scenarios fall back to P/E when cash flow is negative', () => {
+  const s = scenarios({ val: { fcf: -5 }, quote: { price: 50 }, metrics: { epsTTM: 2, peTTM: 25, epsGrowth5Y: 10 } });
+  assert.equal(s.method, 'P/E');
+  close(s.cases[1].value, 25 * 2.2);
+  assert.equal(scenarios({ val: null, quote: { price: 50 }, metrics: { epsTTM: -1, peTTM: null } }), null);
+});
+
+await test('Price levels are sorted high to low and include today', () => {
+  const candles = Array.from({ length: 300 }, (_, i) => ({ t: i * 86400, o: 100 + i / 10, h: 101 + i / 10, l: 99 + i / 10, c: 100 + i / 10, v: 1 }));
+  const tech = technicalSummary(candles);
+  const levels = priceLevels({ quote: { price: 125 }, tech, dcfValue: 140 });
+  assert.ok(levels.every((l, i) => i === 0 || levels[i - 1].price >= l.price));
+  assert.ok(levels.some((l) => l.kind === 'current' && l.price === 125));
+  assert.ok(levels.some((l) => l.kind === 'value' && l.distancePct > 0));
+});
+
 // ---------------------------------------------------------------------------
 console.log('\nRatings');
 
@@ -219,10 +246,29 @@ await test('AI answers are cleaned up into the expected shape', () => {
   assert.equal(normalize({ rating: 'To the moon' }).rating, 'Hold');
 });
 
+await test('New note fields are kept, cleaned and limited', () => {
+  const r = normalize({
+    riskLevel: 'high', bottomLine: 'Buy slowly.', scenarios: { bear: { odds: '30', story: 'Slows.' }, base: { odds: 50 }, bull: null },
+    beforeYouBuy: ['Read the 10-K', '', 'Check debt'], glossary: [{ term: 'P/E', plain: 'Price vs. profit' }, { term: '', plain: 'x' }],
+    thesis: { status: 'intact', suggestions: ['Add a target date'] },
+  });
+  assert.equal(r.version, 2);
+  assert.equal(r.riskLevel, 'High');
+  assert.equal(r.scenarios.bear.odds, 30);
+  assert.equal(r.scenarios.bull, null);
+  assert.deepEqual(r.beforeYouBuy, ['Read the 10-K', 'Check debt']);
+  assert.equal(r.glossary.length, 1);
+  assert.equal(r.thesis.status, 'Intact');
+  assert.deepEqual(r.thesis.suggestions, ['Add a target date']);
+  assert.equal(normalize({}).riskLevel, 'Medium');
+});
+
 await test('The AI prompt carries the data and flags demo numbers', () => {
   const prompt = buildPrompt({ dataMode: 'demo', ticker: 'XYZ' });
   assert.match(prompt, /DEMO numbers/);
   assert.match(prompt, /"ticker":"XYZ"/);
+  assert.match(prompt, /beginner/);
+  assert.match(prompt, /Do not invent other prices/);
   assert.doesNotMatch(buildPrompt({ dataMode: 'live' }), /DEMO numbers/);
 });
 

@@ -2,9 +2,10 @@
 // ai.js: the AI analyst.
 //
 // It hands the AI the numbers already on the page (it never asks the AI
-// to remember prices or news) and asks for a structured rating: an overall
-// call, a view on each section, bull/bear points, risks, and a check of
-// YOUR thesis against the data.
+// to remember prices or news) and asks for a research note written for a
+// beginner: the bottom line first, then scenarios, price levels, every
+// section explained in plain English, a checklist, what would change the
+// view, a check of YOUR thesis, and what to research next.
 //
 // Which AI runs, in order of preference:
 //   1. "Your Mac"  - Ollama running on your MacBook (free, private, no limits)
@@ -15,12 +16,13 @@
 import { passcodeHeaders } from './api.js';
 
 const OLLAMA = 'http://localhost:11434';
-const CACHE_PREFIX = 'thesis-journal/ai/';
+const CACHE_PREFIX = 'thesis-journal/ai-v2/'; // v2 = the detailed beginner note
 const DAY_MS = 86_400_000;
 // Models that follow instructions well, best first. Any installed model works.
 const PREFERRED_LOCAL = ['qwen3', 'gemma3', 'llama3.3', 'llama3.1', 'mistral-small', 'phi4', 'llama3'];
 
 export const RATINGS = ['Strong Buy', 'Buy', 'Hold', 'Sell', 'Strong Sell'];
+export const RISK_LEVELS = ['Low', 'Medium', 'High', 'Very high'];
 export const SECTIONS = [
   ['valuation', 'Valuation'], ['growth', 'Growth'], ['profitability', 'Profitability'], ['health', 'Financial health'],
   ['momentum', 'Momentum'], ['earnings', 'Earnings'], ['sentiment', 'Sentiment'], ['news', 'News'],
@@ -110,6 +112,7 @@ export async function runResearch(ticker, bundle, { signal, onProgress } = {}) {
     raw = await engine.sample.json(prompt, {
       signal,
       cache: false,
+      modelTier: 'complex', // the most thorough model: slower, but this note is worth it
       onText: ({ text }) => onProgress?.(text.length),
     }).catch((e) => { throw Object.assign(new Error(claudeMessage(e.code)), { code: e.code }); });
   } else if (engine.id === 'local') {
@@ -120,7 +123,7 @@ export async function runResearch(ticker, bundle, { signal, onProgress } = {}) {
         model: engine.model,
         stream: false,
         format: 'json',
-        options: { temperature: 0.2, num_ctx: 16384 },
+        options: { temperature: 0.2, num_ctx: 24576, num_predict: 8192 },
         messages: [{ role: 'user', content: prompt }],
       }),
     });
@@ -170,29 +173,57 @@ function parseJSON(text) {
 
 // Make sure the answer has the shape the page expects, whatever the AI sent
 export function normalize(raw) {
-  const str = (v, max = 600) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-  const list = (v) => (Array.isArray(v) ? v.map((x) => str(x, 280)).filter(Boolean).slice(0, 5) : []);
-  const rating = RATINGS.find((r) => r.toLowerCase() === str(raw?.rating).toLowerCase()) ?? 'Hold';
-  const view = (v) => ['Positive', 'Neutral', 'Negative'].find((x) => x.toLowerCase() === str(v).toLowerCase()) ?? 'Neutral';
+  const str = (v, max = 700) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const list = (v, max = 6, len = 320) => (Array.isArray(v) ? v.map((x) => str(typeof x === 'string' ? x : x?.text, len)).filter(Boolean).slice(0, max) : []);
+  const oneOf = (options, v, fallback) => options.find((x) => x.toLowerCase() === str(v).toLowerCase()) ?? fallback;
+  const num = (v, lo, hi) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Math.max(lo, Math.min(hi, Number(v))) : null);
+
   const sections = {};
   for (const [key] of SECTIONS) {
-    const s = raw?.sections?.[key];
-    sections[key] = s ? { view: view(s.view), line: str(s.line, 400) } : null;
+    const x = raw?.sections?.[key];
+    sections[key] = x ? { view: oneOf(['Positive', 'Neutral', 'Negative'], x.view, 'Neutral'), line: str(x.line, 450), meaning: str(x.meaning, 450) } : null;
   }
-  const status = ['Intact', 'Weakening', 'Broken', 'No thesis'].find((x) => x.toLowerCase() === str(raw?.thesis?.status).toLowerCase()) ?? 'No thesis';
+  const scenario = (x) => (x ? { odds: num(x.odds, 0, 100), story: str(x.story, 500) } : null);
+
   return {
-    rating,
-    confidence: Math.max(0, Math.min(100, Math.round(Number(raw?.confidence) || 50))),
+    version: 2,
+    rating: oneOf(RATINGS, raw?.rating, 'Hold'),
+    confidence: Math.round(num(raw?.confidence, 0, 100) ?? 50),
+    riskLevel: oneOf(RISK_LEVELS, raw?.riskLevel, 'Medium'),
+    riskWhy: str(raw?.riskWhy, 400),
     headline: str(raw?.headline, 240),
+    bottomLine: str(raw?.bottomLine, 800),
+    snapshot: str(raw?.snapshot, 900),
+    // older notes had "summary" instead of "snapshot"
     summary: str(raw?.summary, 1200),
     sections,
-    bull: list(raw?.bull),
-    bear: list(raw?.bear),
-    risks: list(raw?.risks),
-    catalysts: list(raw?.catalysts),
-    watch: list(raw?.watch),
-    thesis: { status, line: str(raw?.thesis?.line, 500) },
+    scenarios: { bear: scenario(raw?.scenarios?.bear), base: scenario(raw?.scenarios?.base), bull: scenario(raw?.scenarios?.bull) },
+    levelsNote: str(raw?.levelsNote, 500),
+    approach: str(raw?.approach, 500),
+    beforeYouBuy: list(raw?.beforeYouBuy, 6),
+    upgradeIf: list(raw?.upgradeIf, 4),
+    downgradeIf: list(raw?.downgradeIf, 4),
+    bull: list(raw?.bull, 5),
+    bear: list(raw?.bear, 5),
+    risks: list(raw?.risks, 5),
+    catalysts: list(raw?.catalysts, 4),
+    watch: list(raw?.watch, 5),
+    questions: list(raw?.questions, 5, 400),
+    glossary: Array.isArray(raw?.glossary)
+      ? raw.glossary.map((g) => ({ term: str(g?.term, 60), plain: str(g?.plain, 300) })).filter((g) => g.term && g.plain).slice(0, 8)
+      : [],
+    thesis: {
+      status: oneOf(['Intact', 'Weakening', 'Broken', 'No thesis'], raw?.thesis?.status, 'No thesis'),
+      line: str(raw?.thesis?.line, 600),
+      suggestions: list(raw?.thesis?.suggestions, 3),
+    },
   };
+}
+
+// About how long the note takes to read
+export function readingMinutes(result) {
+  const text = JSON.stringify(result);
+  return Math.max(1, Math.round(text.split(/\s+/).length / 230));
 }
 
 // ---------------------------------------------------------------------------
@@ -201,28 +232,55 @@ export function normalize(raw) {
 
 export function buildPrompt(bundle) {
   const demo = bundle.dataMode === 'demo'
-    ? '\nIMPORTANT: these are made-up DEMO numbers, not real market data. Analyze them exactly as given and begin the summary with "Based on demo numbers:".\n'
+    ? '\nIMPORTANT: these are made-up DEMO numbers, not real market data. Analyze them exactly as given and begin the bottomLine with "Based on demo numbers:".\n'
     : '';
-  return `You are an equity research analyst writing for one private investor who keeps a thesis journal.
-Rate the stock using ONLY the data below. Do not use outside knowledge about this company's recent events, prices or news, because it may be out of date. If important data is missing, say so. Cite specific numbers from the data. Be balanced and plain-spoken, with no hype. This is research, not personal financial advice.
+  return `You are a patient equity research analyst writing for ONE investor who is a beginner. They keep a thesis journal and want to make better, calmer decisions. Write a research note that is detailed and specific, but easy to follow.
+
+RULES
+- Use ONLY the DATA below for numbers, prices, news and recent events. Your general knowledge may only be used to describe what the company sells, in one or two sentences, and never for recent events or figures. If something important is missing from the data, say so.
+- Be specific: every "line", "story" and list item must mention at least one number from the data, and say what it is being compared with (its own history, the peer median, the S&P 500, or the app's scoring thresholds in appScore.factors).
+- Plain English: the first time you use a term like P/E, free cash flow, margin or beta, explain it in a few words in parentheses. Short sentences. No hype and no hedging filler.
+- Be balanced: give the strongest honest case on both sides. If your rating differs from Wall Street or the app score, explain why in bottomLine.
+- scenarios: the bear/base/bull prices are already worked out in DATA.scenarios. Do not invent other prices. For each case, write the story (what would have to happen, citing numbers) and your odds in percent; the three odds must add to 100.
+- levelsNote: explain the price levels in DATA.priceLevels for a beginner: which act as support or resistance, and where the stock looks cheaper or more expensive relative to the DCF value.
+- approach: general education on how investors often approach a stock with this risk level (for example building a position gradually or keeping it a small share of a portfolio). Not personal advice, and never tell them to buy or sell.
+- This is research, not personal financial advice.
 ${demo}
-Reply with ONLY one JSON object in exactly this shape:
+Reply with ONLY one JSON object in exactly this shape (no text before or after):
 {
   "rating": "Strong Buy" | "Buy" | "Hold" | "Sell" | "Strong Sell",
   "confidence": 0-100,
-  "headline": "one sentence verdict",
-  "summary": "3-4 sentences",
+  "riskLevel": "Low" | "Medium" | "High" | "Very high",
+  "riskWhy": "1-2 sentences with numbers (volatility, drawdown, debt, beta)",
+  "headline": "one-sentence verdict",
+  "bottomLine": "3-4 sentences: the verdict, the single biggest reason for it, the single biggest risk, and what kind of investor it suits",
+  "snapshot": "3-4 sentences for a beginner: what the business sells and how it is doing right now, with numbers",
   "sections": {
-    "valuation": {"view": "Positive" | "Neutral" | "Negative", "line": "1-2 sentences with numbers"},
-    "growth": {...same shape}, "profitability": {...}, "health": {...}, "momentum": {...},
-    "earnings": {...}, "sentiment": {...}, "news": {...}
+    "valuation": {"view": "Positive" | "Neutral" | "Negative", "line": "2 sentences with specific numbers and comparisons", "meaning": "1-2 sentences: what this means for you as an investor, in plain words"},
+    "growth": {same shape}, "profitability": {...}, "health": {...}, "momentum": {...}, "earnings": {...}, "sentiment": {...}, "news": {...}
   },
-  "bull": ["3 short points"],
-  "bear": ["3 short points"],
-  "risks": ["3 short points"],
-  "catalysts": ["up to 3 upcoming events or drivers found in the data"],
-  "watch": ["3 specific things to monitor"],
-  "thesis": {"status": "Intact" | "Weakening" | "Broken" | "No thesis", "line": "1-2 sentences comparing the investor's own thesis with the data"}
+  "scenarios": {
+    "bear": {"odds": 0-100, "story": "2 sentences"},
+    "base": {"odds": 0-100, "story": "2 sentences"},
+    "bull": {"odds": 0-100, "story": "2 sentences"}
+  },
+  "levelsNote": "2-3 sentences",
+  "approach": "1-2 sentences",
+  "beforeYouBuy": ["4-5 specific things to check or decide before buying THIS stock, each actionable and tied to the data"],
+  "upgradeIf": ["2-3 specific, measurable signs that would make you more positive"],
+  "downgradeIf": ["2-3 specific, measurable signs that would make you more negative"],
+  "bull": ["3-4 points with numbers"],
+  "bear": ["3-4 points with numbers"],
+  "risks": ["3 risks"],
+  "catalysts": ["up to 3 upcoming events or drivers from the data, with dates when known"],
+  "watch": ["3-4 numbers to track, with the level that would matter"],
+  "questions": ["3 questions the data here cannot answer, and exactly where to look (for example 'Item 1A Risk Factors in the latest 10-K')"],
+  "glossary": [{"term": "a term you used", "plain": "one-sentence plain-English meaning"}],
+  "thesis": {
+    "status": "Intact" | "Weakening" | "Broken" | "No thesis",
+    "line": "2 sentences comparing the investor's own thesis, bull case and bear case with the data",
+    "suggestions": ["1-3 ways to make their thesis sharper or more testable"]
+  }
 }
 
 DATA:

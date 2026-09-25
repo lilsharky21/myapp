@@ -116,26 +116,14 @@ function factorTable(ctx) {
 
 function aiReport(ctx) {
   if (ctx.ai.state !== 'done') return '';
-  const { result: r, engine, at, demo } = ctx.ai.entry;
-  const list = (title, items, cls = '') => (items.length ? `<div class="ai-list ${cls}"><h3>${title}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '');
-  const newsLine = r.sections.news?.line;
+  const r = ctx.ai.entry.result;
   return `
     <section class="block">
-      <h2>AI research note</h2>
-      <div class="card-plain ai-note">
-        ${r.headline ? `<p class="ai-headline">${esc(r.headline)}</p>` : ''}
-        <p>${esc(r.summary)}</p>
-        ${r.thesis.status !== 'No thesis' ? `<div class="thesis-check"><span class="pill ${{ Intact: 'up', Weakening: 'neutral', Broken: 'down' }[r.thesis.status]}">Your thesis: ${r.thesis.status.toLowerCase()}</span><p>${esc(r.thesis.line)}</p></div>` : ''}
-        <div class="ai-lists">
-          ${list('Bull case', r.bull, 'up')}
-          ${list('Bear case', r.bear, 'down')}
-          ${list('Risks', r.risks)}
-          ${list('Catalysts', r.catalysts)}
-          ${list('What to watch', r.watch)}
-        </div>
-        ${newsLine ? `<p class="rs-line"><span class="ai-badge">News</span>${esc(newsLine)}</p>` : ''}
-        <p class="fineprint">Written by ${esc(engine)} ${f.ago(at)} from the data on this page${demo ? ' (demo numbers)' : ''}. AI can misread numbers or miss context, so check anything important. It's research, not advice.</p>
-      </div>
+      <button type="button" class="card-plain note-link" data-goto="research">
+        <span class="stat-label">AI research note</span>
+        <span class="note-link-text">${esc(r.headline || r.bottomLine || r.summary)}</span>
+        <span class="note-link-cta">Read the full note →</span>
+      </button>
     </section>`;
 }
 

@@ -12,9 +12,11 @@ import { PriceChart } from './charts.js';
 import { appScore, analystConsensus, piotroski, altmanZ, median } from './ratings.js';
 import { dcf, dcfInputs, impliedGrowth } from './valuation.js';
 import { findEngines, savedResearch, runResearch } from './ai.js';
+import { scenarios, priceLevels, loadChecks, saveChecks } from './research.js';
 import { dotsHTML, esc, pick } from './ui.js';
 import { CONVICTION_WORDS } from './journal.js';
 import { overviewTab } from './tabs/overview.js';
+import { researchTab } from './tabs/research.js';
 import { ratingsTab } from './tabs/ratings.js';
 import { technicalsTab } from './tabs/technicals.js';
 import { financialsTab } from './tabs/financials.js';
@@ -25,6 +27,7 @@ import { newsTab } from './tabs/news.js';
 
 const TABS = [
   ['overview', 'Overview', overviewTab],
+  ['research', 'Research', researchTab],
   ['ratings', 'Ratings', ratingsTab],
   ['technicals', 'Technicals', technicalsTab],
   ['financials', 'Financials', financialsTab],
@@ -58,6 +61,7 @@ export function openStockPage(root, idea, { onEdit, onBack, onRated }) {
     data: {},
     derived: {},
     ai: { state: saved ? 'done' : 'idle', entry: saved, error: null, engines: null, progress: '' },
+    checks: loadChecks(idea.ticker),
     chart: null,
     timer: null,
   };
@@ -176,6 +180,14 @@ function derive() {
   // Slider starting points follow the data until you move a slider yourself
   if (d.val && !view.dcfTouched) view.dcf = { growth: d.val.growth, discount: d.val.discount, terminal: d.val.terminal };
   d.dcfDefault = d.val ? dcf(d.val) : null;
+  d.scenarios = scenarios({
+    val: d.val,
+    quote,
+    metrics: fund?.metrics,
+    peers: ok('peers')?.peers ?? [],
+    peHistory: (fund?.metricSeries?.annual?.pe ?? []).map((p) => p?.v).filter((v) => v > 0),
+  });
+  d.levels = priceLevels({ quote, tech: d.tech, dcfValue: d.dcfDefault?.perShare });
   d.score = appScore({
     quote,
     metrics: fund?.metrics,
@@ -211,8 +223,11 @@ function ctx() {
     consensus: d.consensus,
     val: d.val,
     dcfDefault: d.dcfDefault,
+    scenarios: d.scenarios,
+    levels: d.levels,
     score: d.score,
     ai: view.ai,
+    checks: view.checks,
   };
 }
 
@@ -344,7 +359,20 @@ function researchBundle(c) {
       valueSold: r(value(trades.filter((x) => x.transactionCode === 'S'))),
     } : 'not available',
     headlines: (c.news?.news ?? []).slice(0, 12).map((n) => ({ date: new Date(n.time).toISOString().slice(0, 10), source: n.source, headline: n.headline })),
-    appScore: c.score?.overall != null ? { overall: c.score.overall, label: c.score.label, grades: Object.fromEntries(c.score.factors.map((x) => [x.key, x.grade])) } : null,
+    appScore: c.score?.overall != null ? {
+      overall: c.score.overall,
+      label: c.score.label,
+      // Each factor with the measurements behind it and how each scored (0-100)
+      factors: c.score.factors.map((x) => ({
+        factor: x.name, grade: x.grade, score: x.score,
+        inputs: x.inputs.map((i) => `${i.label}: ${i.value} (scored ${i.score})`),
+      })),
+    } : null,
+    scenarios: c.scenarios ? {
+      method: c.scenarios.method,
+      cases: c.scenarios.cases.map((s) => ({ case: s.key, value: r(s.value), vsPricePct: r(s.changePct), assumptions: s.assumptions })),
+    } : null,
+    priceLevels: c.levels.map((l) => ({ level: l.label, price: r(l.price), vsPricePct: r(l.distancePct) })),
     investorThesis: {
       thesis: c.idea.thesis || null, bullCase: c.idea.bull || null, bearCase: c.idea.bear || null,
       targetPrice: c.idea.target, entryPrice: c.idea.entry, conviction: CONVICTION_WORDS[c.idea.conviction - 1],
@@ -646,6 +674,16 @@ function wire(root) {
     }
   });
 
+  // Ticking an item on the "before you buy" checklist
+  root.addEventListener('change', (event) => {
+    const item = event.target.dataset?.check;
+    if (item == null || !view) return;
+    if (event.target.checked) view.checks.add(item); else view.checks.delete(item);
+    saveChecks(view.idea.ticker, view.checks);
+    const done = view.root.querySelector('#checks-done');
+    if (done) done.textContent = checksDoneText();
+  });
+
   // Dragging a DCF slider updates the answer live
   root.addEventListener('input', (event) => {
     const key = event.target.dataset?.dcf;
@@ -675,6 +713,12 @@ function wire(root) {
     { rootMargin: '-52px 0px 0px 0px' },
   );
   view.observer.observe(root.querySelector('.st-ticker'));
+}
+
+function checksDoneText() {
+  const items = view.ai.entry?.result.beforeYouBuy ?? [];
+  const done = items.filter((x) => view.checks.has(x)).length;
+  return `${done} of ${items.length} done`;
 }
 
 function nyDate(t) {

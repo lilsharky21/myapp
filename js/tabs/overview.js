@@ -39,8 +39,19 @@ function ratingsCard(ctx) {
           ${aiBody}
         </div>
       </div>
-      ${ai.state === 'done' && ai.entry.result.headline ? `<p class="rs-line"><span class="ai-badge">AI</span>${esc(ai.entry.result.headline)}</p>` : ''}
+      ${ai.state === 'done' ? bottomLineCard(ai.entry.result) : ''}
     </section>`;
+}
+
+// The AI's bottom line, with a way into the full note
+function bottomLineCard(r) {
+  const riskTone = { Low: 'up', Medium: 'neutral', High: 'down', 'Very high': 'down' }[r.riskLevel] ?? 'neutral';
+  return `
+    <button type="button" class="card-plain note-link overview-bl" data-goto="research">
+      <span class="bl-row"><span class="ai-badge">AI</span><span class="stat-label">Bottom line</span>${r.riskLevel ? `<span class="pill small ${riskTone}">${r.riskLevel} risk</span>` : ''}</span>
+      <span class="note-link-text">${esc(r.bottomLine || r.headline || r.summary)}</span>
+      <span class="note-link-cta">Read the full research note →</span>
+    </button>`;
 }
 
 function tiles(ctx) {

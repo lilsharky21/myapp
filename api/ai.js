@@ -36,11 +36,11 @@ export async function POST(request) {
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model())}:generateContent`,
       {
         method: 'POST',
-        timeoutMs: 90_000,
+        timeoutMs: 55_000, // just under the 60-second limit set in vercel.json
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+          generationConfig: { temperature: 0.3, maxOutputTokens: 8192, responseMimeType: 'application/json' },
         }),
       },
     );

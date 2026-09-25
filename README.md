@@ -11,7 +11,7 @@ Overview, Ratings, Technicals, Financials, Valuation, Earnings, Investors and Ne
 |---|---|
 | **Wall Street** | The consensus of analysts covering the stock (Finnhub) |
 | **App score** | 0–100 from seven graded factors (valuation, growth, profitability, financial health, momentum, earnings, sentiment). Every grade shows the numbers and rules behind it. See `js/ratings.js`. |
-| **AI analyst** | An AI reads all the data on the page and gives its own rating, a view on each section, bull/bear points, risks and a check of *your* thesis. See `js/ai.js`. |
+| **AI analyst** | An AI reads all the data on the page and writes a research note for a beginner (the Research tab): bottom line and risk level, bear/base/bull scenarios, prices to watch, every section in plain English with "what it means for you", a before-you-buy checklist, what would change the view, a check of *your* thesis, questions to research next, and a glossary. See `js/ai.js` and `js/tabs/research.js`. |
 
 Each tab starts with a strip showing all three for that topic.
 
@@ -29,6 +29,7 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | `js/tabs/` | One file per tab (overview, ratings, technicals, financials, valuation, earnings, investors, news) |
 | `js/ratings.js` | The app score, Piotroski F-Score and Altman Z-Score |
 | `js/valuation.js` | Discounted cash flow, reverse DCF, Graham number |
+| `js/research.js` | Scenario values and price levels for the research note (worked out by the app, not the AI) |
 | `js/ai.js` | The AI analyst: picks an AI, builds the prompt, checks the answer |
 | `js/ui.js` | Small shared pieces (rows, grades, the ratings strip) |
 | `js/statement-math.js` | Margins, returns and growth from financial statements |
