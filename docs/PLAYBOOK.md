@@ -13,7 +13,11 @@ Discover / search  →  Watchlist  →  Full research  →  Decide & size  →  
 
 ## 1. Find ideas (weekly, ~15 minutes)
 
-- Open **Discover**. Pick the time frame you're investing for:
+- Open **Discover**. It scans every NYSE and Nasdaq company's annual report and keeps
+  the strongest ~120, so you'll see lesser-known companies next to famous ones. Read the
+  green "why it's here" line, and tap **+** on anything worth a closer look. Try
+  **Size → Mid** or **Small** to find companies most people haven't heard of yet.
+  Pick the time frame you're investing for:
   - **Best overall** first: good businesses whose price is also rising.
   - **Long term** (years): *Quality at a fair price* and *Compounders* are the most
     beginner-friendly.

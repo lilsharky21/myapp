@@ -12,7 +12,7 @@ Investors and News.
 - **Compare**: every idea in one sortable table (app score, Wall Street, AI, P/E, growth, DCF value, upside to your target, next earnings, conviction).
 - **Journal tab**: dated notes stamped with the price that day, trades you made (your position, average cost and profit/loss), thesis changes, review reminders every 90 days, and closing an idea with a verdict, a lesson, and how it did against the S&P 500.
 - **Sync**: the same watchlist and journal on your Mac and iPhone (through Blob storage in your own Vercel account), plus Export / Import backups.
-- **Discover**: ready-made screens across ~200 well-known US companies, for every time frame, each stock with a **Long-term score** (the business) and a **Swing score** (the price trend):
+- **Discover**: scans **every NYSE and Nasdaq company's latest annual report** (free SEC data, one request per number for the whole market), keeps the ~120 strongest businesses and fastest growers, then checks their price, valuation and trend. Popular names only appear if their numbers earn it. Each result shows *why it's here*, a **+** to add it, and a **New** badge when it's just entered a screen. Filter by industry, size (large / mid / small) and P/E. Every stock gets a **Long-term score** (the business) and a **Swing score** (the price trend):
   - *Best overall*: Best right now · Great business, rising price
   - *Long term*: Top long-term score · Quality at a fair price · Compounders · Fast growers · Cheap vs. profits · Strong balance sheet · Dividend payers
   - *Months*: Growth at a reasonable price · Growth speeding up · Turnarounds · Steady winners

@@ -18,7 +18,7 @@ import { macSetupCommand } from './mac-setup.js';
 import { pullJournal, pushJournal } from './sync.js';
 import { attachSearch } from './search.js';
 import { loadMarket, loadRates, todayHTML } from './today.js';
-import { loadScreen, discoverHTML, forgetScreen, checkCharts, PRESETS } from './screen.js';
+import { loadScreen, discoverHTML, forgetScreen, checkCharts, runScreen, PRESETS } from './screen.js';
 import { recordHTML } from './record.js';
 import { benchReturn } from './tabs/journal.js';
 import { installTipHTML, dismissInstallTip, registerServiceWorker } from './install.js';
@@ -902,11 +902,28 @@ function closeDiscover() {
   });
 }
 
+// "New" badges: which stocks entered each screen since you last looked at it
+const SEEN_KEY = 'thesis-journal/screen-seen';
+function newChecker(d) {
+  if (!d.stocks || d.loaded < d.total || d.demo) return () => false;
+  d.newFor ??= {};
+  if (!d.newFor[d.preset]) {
+    const now = runScreen(d.stocks, { preset: d.preset }).map((s) => s.symbol);
+    let seen = {};
+    try { seen = JSON.parse(localStorage.getItem(SEEN_KEY)) ?? {}; } catch { /* blocked */ }
+    const before = seen[d.preset];
+    d.newFor[d.preset] = new Set(before ? now.filter((t) => !before.includes(t)) : []);
+    seen[d.preset] = now;
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify(seen)); } catch { /* blocked */ }
+  }
+  return (t) => d.newFor[d.preset].has(t);
+}
+
 function renderDiscover() {
   const root = $('#discover-view');
   const scroll = root.querySelector('.table-wrap')?.scrollLeft ?? 0;
   const focused = document.activeElement?.dataset?.filter;
-  root.innerHTML = discoverHTML(state.discover, new Set(state.ideas.filter((i) => i.status !== 'closed').map((i) => i.ticker)));
+  root.innerHTML = discoverHTML(state.discover, new Set(state.ideas.filter((i) => i.status !== 'closed').map((i) => i.ticker)), newChecker(state.discover));
   const wrap = root.querySelector('.table-wrap');
   if (wrap) wrap.scrollLeft = scroll;
   if (focused) {
@@ -929,6 +946,16 @@ $('#discover-view').addEventListener('click', (event) => {
     return startScreen();
   }
   if (event.target.closest('[data-action="show-all"]')) { d.showAll = true; return renderDiscover(); }
+  // "+" on a result: straight onto the watchlist, at today's price
+  const add = event.target.closest('[data-add]');
+  if (add) {
+    const ticker = add.dataset.add;
+    if (!state.ideas.some((i) => i.ticker === ticker && i.status !== 'closed')) {
+      state.ideas.unshift(createIdea({ ticker, company: add.dataset.name, entry: Number(add.dataset.price) || null }));
+      persist();
+    }
+    return renderDiscover();
+  }
   const horizon = event.target.closest('[data-horizon]');
   if (horizon) {
     d.preset = PRESETS.find((p) => p.group === horizon.dataset.horizon).key;
@@ -960,6 +987,7 @@ $('#discover-view').addEventListener('input', (event) => {
   const key = event.target.dataset?.filter;
   if (!d || !key) return;
   if (key === 'sector') d.sector = event.target.value;
+  if (key === 'size') d.size = event.target.value;
   if (key === 'maxPe') {
     const v = Number(event.target.value.replace(/[^0-9.]/g, ''));
     d.maxPe = event.target.value.trim() && v > 0 ? v : null;

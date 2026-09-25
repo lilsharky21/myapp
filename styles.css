@@ -2127,6 +2127,28 @@ kbd {
 .check-pill.pass { background: var(--up-soft); color: var(--up); }
 .check-pill.fail { background: var(--seg-bg); color: var(--text-2); }
 
+/* Discover rows: ticker line, "why it's here", add button */
+.screen-table th[scope="row"] { min-width: 170px; max-width: 220px; white-space: normal; }
+.row-top { display: flex; align-items: center; gap: 6px; }
+.why { display: block; margin-top: 3px; font-size: 11px; font-weight: 500; line-height: 1.35; color: var(--up); }
+.new-badge { padding: 1px 6px; border-radius: 999px; background: var(--accent); font-size: 10px; font-weight: 700; color: #fff; }
+.row-add {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+}
+.screen-table .on-list { margin-left: auto; }
+
 /* ---------- Ask my Mac (phone) ---------- */
 
 .ask-mac .btn-primary { justify-self: start; }

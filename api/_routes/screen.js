@@ -6,10 +6,11 @@
 // Two Finnhub calls per stock (key stats + price), in sets of 25, cached for
 // hours, so screening stays inside the free limit (60 requests a minute).
 
-import { ok, fail, guard, HOUR, MINUTE } from '../../lib/http.js';
+import { ok, fail, guard, HOUR, MINUTE, DAY } from '../../lib/http.js';
 import { finnhub } from '../../lib/finnhub.js';
 import { UNIVERSE } from '../../js/universe.js';
 export const SET_SIZE = 25;
+export const MAX_SYMBOLS = 15;
 export const SET_COUNT = Math.ceil(UNIVERSE.length / SET_SIZE);
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -17,31 +18,50 @@ const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 export async function GET(request) {
   try {
     guard(request);
-    const set = Number(new URL(request.url).searchParams.get('set') ?? 0);
-    if (!Number.isInteger(set) || set < 0 || set >= SET_COUNT) {
-      return Response.json({ error: 'bad_request', message: `set should be 0 to ${SET_COUNT - 1}.` }, { status: 400 });
+    const params = new URL(request.url).searchParams;
+    let list;
+    let set = null;
+    if (params.get('symbols') != null) {
+      // Discover's finalists from the whole-market scan (see candidates.js)
+      const symbols = [...new Set(params.get('symbols').toUpperCase().split(',').map((t) => t.trim()).filter(Boolean))];
+      if (!symbols.length || symbols.length > MAX_SYMBOLS || symbols.some((t) => !/^[A-Z0-9.\-]{1,12}$/.test(t))) {
+        return Response.json({ error: 'bad_request', message: `Send 1 to ${MAX_SYMBOLS} tickers.` }, { status: 400 });
+      }
+      const known = new Map(UNIVERSE.map((u) => [u[0], u]));
+      list = symbols.map((t) => known.get(t) ?? [t, null, null]);
+    } else {
+      set = Number(params.get('set') ?? 0);
+      if (!Number.isInteger(set) || set < 0 || set >= SET_COUNT) {
+        return Response.json({ error: 'bad_request', message: `set should be 0 to ${SET_COUNT - 1}.` }, { status: 400 });
+      }
+      list = UNIVERSE.slice(set * SET_SIZE, (set + 1) * SET_SIZE);
     }
-    const list = UNIVERSE.slice(set * SET_SIZE, (set + 1) * SET_SIZE);
     const stocks = [];
     // 5 stocks (10 calls) at a time: Finnhub also limits bursts (30 a second)
     for (let i = 0; i < list.length; i += 5) {
       const slice = list.slice(i, i + 5);
-      const [metrics, quotes] = await Promise.all([
+      const [metrics, quotes, profiles] = await Promise.all([
         Promise.allSettled(slice.map(([symbol]) => finnhub('/stock/metric', { symbol, metric: 'all' }, 24 * HOUR))),
         Promise.allSettled(slice.map(([symbol]) => finnhub('/quote', { symbol }, 30 * MINUTE))),
+        // Industry and size, for stocks that aren't on the built-in list (changes rarely)
+        Promise.allSettled(slice.map(([symbol, name]) => (name ? Promise.resolve({}) : finnhub('/stock/profile2', { symbol }, 7 * DAY)))),
       ]);
       if (i === 0 && metrics[0].status === 'rejected' && ['not_configured', 'locked'].includes(metrics[0].reason?.code)) throw metrics[0].reason;
       metrics.forEach((r, k) => {
-        const [symbol, name, sector] = slice[k];
+        const [symbol, knownName, knownSector] = slice[k];
         const m = r.status === 'fulfilled' ? r.value?.metric ?? {} : null;
         if (!m) return;
+        const p = profiles[k].status === 'fulfilled' ? profiles[k].value ?? {} : {};
+        const name = knownName ?? p.name ?? symbol;
+        const sector = knownSector ?? p.finnhubIndustry ?? null;
         const q = quotes[k].status === 'fulfilled' ? quotes[k].value ?? {} : {};
         const price = num(q.c) || null;
         const high52 = num(m['52WeekHigh']);
         const low52 = num(m['52WeekLow']);
         stocks.push({
           symbol, name, sector,
-          marketCap: num(m.marketCapitalization) != null ? m.marketCapitalization * 1e6 : null,
+          marketCap: num(m.marketCapitalization) != null ? m.marketCapitalization * 1e6
+            : num(p.marketCapitalization) != null ? p.marketCapitalization * 1e6 : null,
           pe: num(m.peTTM) ?? num(m.peExclExtraTTM),
           ps: num(m.psTTM),
           revenueGrowth: num(m.revenueGrowthTTMYoy),

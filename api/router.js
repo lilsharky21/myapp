@@ -11,6 +11,7 @@
 // Written out one by one so Vercel packs every route into this function
 const ROUTES = {
   ai: () => import('./_routes/ai.js'),
+  candidates: () => import('./_routes/candidates.js'),
   financials: () => import('./_routes/financials.js'),
   fundamentals: () => import('./_routes/fundamentals.js'),
   history: () => import('./_routes/history.js'),

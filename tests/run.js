@@ -1075,5 +1075,88 @@ await test('The backend is one Vercel function (free plan allows 12), covering e
 });
 
 // ---------------------------------------------------------------------------
+console.log('\nWhole-market scan');
+
+await test('SEC unavailable -> Discover falls back to its built-in list', async () => {
+  const res = await call('candidates', '');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.fallback, true);
+});
+
+await test('Scans every listed company and keeps the best businesses (popular or not)', async () => {
+  const frame = (rows) => ({ data: Object.entries(rows).map(([cik, val]) => ({ cik: Number(cik), val, entityName: 'X', end: '2025-12-31' })) });
+  const exchange = { fields: ['cik', 'name', 'ticker', 'exchange'], data: [
+    [1, 'ACME ROCKETS INC', 'ACME', 'Nasdaq'],     // small, fast-growing, very profitable
+    [2, 'BIGCO HOLDINGS', 'BIG', 'NYSE'],          // huge, shrinking, thin margins
+    [3, 'PENNY CORP', 'PNY', 'OTC'],               // OTC: never included
+    [4, 'ALPHABET INC', 'GOOGL', 'Nasdaq'], [4, 'ALPHABET INC', 'GOOG', 'Nasdaq'], // one ticker per company
+    [5, 'JUNE YEAR INC', 'JUNE', 'NYSE'],          // fiscal year lands in the earlier calendar year
+    [6, 'TINY INC', 'TINY', 'Nasdaq'],             // under $250M revenue
+    [7, 'CLASS SHARES', 'BRK-B', 'NYSE'],
+    ...Array.from({ length: 60 }, (_, i) => [100 + i, `FILLER ${i}`, `F${i}`, 'NYSE']),
+  ] };
+  const filler = (v) => Object.fromEntries(Array.from({ length: 60 }, (_, i) => [100 + i, v]));
+  const rev = {
+    2025: { 1: 800e6, 2: 100e9, 3: 900e6, 4: 350e9, 6: 100e6, 7: 400e9, 999: 1, ...filler(1e9) },
+    2024: { 1: 500e6, 2: 105e9, 3: 500e6, 4: 300e9, 5: 2e9, 6: 80e6, 7: 380e9, ...filler(0.95e9) },
+    2023: { 1: 400e6, 2: 100e9, 4: 280e9, 5: 1.6e9, 7: 360e9, ...filler(0.9e9) },
+  };
+  const ni = { 2025: { 1: 170e6, 2: 2e9, 3: 300e6, 4: 100e9, 7: 90e9, ...filler(0.08e9) }, 2024: { 5: 500e6, ...filler(0.07e9) } };
+  const cash = { 2025: { 1: 220e6, 2: 5e9, 4: 120e9, 7: 30e9, ...filler(0.1e9) }, 2024: { 5: 600e6 } };
+  const eq = { 2025: { 1: 600e6, 2: 50e9, 4: 300e9, 7: 600e9, ...filler(1e9) }, 2024: { 5: 2e9 } };
+  const assets = { 2025: { 1: 900e6, 2: 400e9, 4: 450e9, 7: 1100e9, ...filler(2e9) }, 2024: { 5: 3e9 } };
+  const liab = { 2025: { 1: 300e6, 2: 350e9, 4: 150e9, 7: 500e9, ...filler(1e9) }, 2024: { 5: 1e9 } };
+  const base = 'data.sec.gov/api/xbrl/frames/us-gaap/';
+  samples['www.sec.gov/files/company_tickers_exchange.json'] = exchange;
+  for (const y of [2025, 2024, 2023]) {
+    samples[`${base}Revenues/USD/CY${y}.json`] = frame(rev[y]);
+    samples[`${base}NetIncomeLoss/USD/CY${y}.json`] = frame(ni[y] ?? {});
+    samples[`${base}NetCashProvidedByUsedInOperatingActivities/USD/CY${y}.json`] = frame(cash[y] ?? {});
+    samples[`${base}StockholdersEquity/USD/CY${y}Q4I.json`] = frame(eq[y] ?? {});
+    samples[`${base}Assets/USD/CY${y}Q4I.json`] = frame(assets[y] ?? {});
+    samples[`${base}Liabilities/USD/CY${y}Q4I.json`] = frame(liab[y] ?? {});
+  }
+  const res = await call('candidates', '');
+  assert.equal(res.status, 200);
+  assert.ok(!res.body.fallback, res.body.message);
+  assert.equal(res.body.year, new Date().getUTCFullYear() - 1);
+  const list = res.body.candidates.map((c) => c.symbol);
+  assert.ok(!list.includes('PNY'), 'OTC excluded');
+  assert.ok(!list.includes('TINY'), 'revenue floor');
+  assert.ok(list.includes('GOOGL') && !list.includes('GOOG'), 'one share class');
+  assert.ok(list.includes('BRK.B'), 'SEC dashes become dots');
+  assert.ok(list.includes('JUNE'), 'earlier fiscal year used');
+  assert.ok(list.indexOf('ACME') < list.indexOf('BIG') || !list.includes('BIG'), 'small strong grower beats big weak company');
+  const acme = res.body.candidates.find((c) => c.symbol === 'ACME');
+  close(acme.revenueGrowthSec, 60);
+  close(acme.netMarginSec, 21.25);
+  assert.equal(res.cache.includes('s-maxage=86400'), true);
+});
+
+await test('Screener checks finalists by ticker, with industry and size', async () => {
+  const bad = await call('screen', 'symbols=' + Array.from({ length: 16 }, (_, i) => `T${i}`).join(','));
+  assert.equal(bad.status, 400);
+  assert.equal((await call('screen', 'symbols=%3Cx%3E')).status, 400);
+  const res = await call('screen', 'symbols=acme,AAPL');
+  assert.equal(res.status, 200);
+  const [acme, aapl] = res.body.stocks;
+  assert.equal(acme.symbol, 'ACME');
+  assert.equal(acme.sector, 'Technology');   // from Finnhub's company profile
+  assert.equal(acme.marketCap, 2800000 * 1e6);
+  assert.equal(aapl.name, 'Apple');          // built-in names win
+});
+
+await test('"Why it\'s here" picks each stock\'s strongest facts for the time frame', async () => {
+  const { reasonsFor, runScreen } = await import('../js/screen.js');
+  const s = { revenueGrowth: 34, netMargin: 21, pe: 12, vsSpx13w: 9, fromHigh: -1, volumeRatio: 1.8, return5d: 2, return6m: 30, dividendYield: 3.4 };
+  assert.deepEqual(reasonsFor(s, 'long'), ['Sales +34%', '21% profit margin', 'P/E 12']);
+  assert.deepEqual(reasonsFor(s, 'swing'), ['At its 52-week high', 'Beating the S&P by 9 pts (3 mo)', 'Volume 1.8× usual']);
+  assert.deepEqual(reasonsFor({}, 'long'), []);
+  const stocks = [{ symbol: 'BIG', marketCap: 50e9 }, { symbol: 'MID', marketCap: 5e9 }, { symbol: 'SML', marketCap: 800e6 }];
+  assert.deepEqual(runScreen(stocks, { preset: 'top', size: 'small' }).map((x) => x.symbol), ['SML']);
+  assert.deepEqual(runScreen(stocks, { preset: 'top', size: 'mid' }).map((x) => x.symbol), ['MID']);
+});
+
+// ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

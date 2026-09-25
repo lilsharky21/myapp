@@ -14,7 +14,7 @@ import { technicalSummary } from './indicators.js';
 import { getDaily, passcodeHeaders } from './api.js';
 
 const esc = f.esc;
-const CACHE = 'thesis-journal/screen-v2';
+const CACHE = 'thesis-journal/screen-v3';
 const CACHE_MS = 6 * 3_600_000;
 
 // ---------------------------------------------------------------------------
@@ -257,12 +257,55 @@ export function scored(stocks) {
 }
 
 // Apply a screen and the filters; returns the matching stocks, best first
-export function runScreen(stocks, { preset = 'best', sector = '', maxPe = null } = {}) {
+// Company size by market value
+export const SIZES = [
+  ['large', 'Large (over $10B)', (cap) => cap >= 10e9],
+  ['mid', 'Mid ($2–10B)', (cap) => cap >= 2e9 && cap < 10e9],
+  ['small', 'Small (under $2B)', (cap) => cap < 2e9],
+];
+
+export function runScreen(stocks, { preset = 'best', sector = '', maxPe = null, size = '' } = {}) {
   const p = PRESETS.find((x) => x.key === preset) ?? PRESETS[0];
+  const sizeTest = SIZES.find(([key]) => key === size)?.[2];
   return scored(stocks)
     .filter((s) => (!sector || s.sector === sector) && (maxPe == null || (s.pe > 0 && s.pe <= maxPe)))
+    .filter((s) => !sizeTest || (s.marketCap != null && sizeTest(s.marketCap)))
     .filter((s) => { try { return p.test(s); } catch { return false; } })
     .sort(p.sort);
+}
+
+// ---------------------------------------------------------------------------
+// "Why it's here": a stock's strongest facts for the time frame you're looking at
+// ---------------------------------------------------------------------------
+
+const REASON_ORDER = {
+  best: ['growth', 'margin', 'strength', 'high', 'fcf', 'cheap', 'roe'],
+  long: ['growth', 'margin', 'fcf', 'roe', 'cheap', 'debt', 'dividend'],
+  medium: ['accel', 'eps', 'peg', 'growth', 'strength6', 'margin'],
+  swing: ['dip', 'high', 'strength', 'volume', 'bounce', 'growth'],
+};
+
+export function reasonsFor(s, group = 'best') {
+  const r0 = (v) => Math.round(v);
+  const facts = {
+    growth: s.revenueGrowth >= 15 && `Sales +${r0(s.revenueGrowth)}%`,
+    margin: s.netMargin >= 15 && `${r0(s.netMargin)}% profit margin`,
+    fcf: s.fcfMargin >= 15 && `${r0(s.fcfMargin)}% cash-flow margin`,
+    roe: s.roe >= 25 && `${r0(s.roe)}% return on equity`,
+    cheap: s.pe > 0 && s.pe <= 16 && `P/E ${r0(s.pe)}`,
+    peg: peg(s) != null && peg(s) <= 1.2 && `PEG ${peg(s).toFixed(1)}`,
+    debt: s.debtToEquity != null && s.debtToEquity >= 0 && s.debtToEquity < 0.3 && 'Almost no debt',
+    dividend: s.dividendYield >= 3 && `${s.dividendYield.toFixed(1)}% dividend`,
+    strength: s.vsSpx13w >= 5 && `Beating the S&P by ${r0(s.vsSpx13w)} pts (3 mo)`,
+    strength6: s.vsSpx26w >= 10 && `Beating the S&P by ${r0(s.vsSpx26w)} pts (6 mo)`,
+    high: s.fromHigh >= -3 && 'At its 52-week high',
+    dip: s.return5d <= -2 && (s.return26w ?? s.return6m) >= 10 && `Dipped ${r0(Math.abs(s.return5d))}% this week`,
+    volume: s.volumeRatio >= 1.5 && `Volume ${s.volumeRatio.toFixed(1)}× usual`,
+    bounce: s.return5d >= 3 && s.return13w <= -15 && `Up ${r0(s.return5d)}% this week`,
+    accel: s.revenueGrowthQ != null && s.revenueGrowth != null && s.revenueGrowthQ >= s.revenueGrowth + 5 && `Sales growth speeding up (+${r0(s.revenueGrowthQ)}%)`,
+    eps: s.epsGrowthQ >= 25 && `Profits +${r0(s.epsGrowthQ)}% last quarter`,
+  };
+  return (REASON_ORDER[group] ?? REASON_ORDER.best).map((k) => facts[k]).filter(Boolean).slice(0, 3);
 }
 
 // ---------------------------------------------------------------------------
@@ -294,42 +337,113 @@ export function savedScreen() {
 }
 
 // onUpdate({ stocks, loaded, total, waiting, demo, error })
+// onUpdate({ stocks, loaded, total, waiting, demo, error, scan })
 export async function loadScreen({ onUpdate, signal }) {
   const saved = savedScreen();
-  if (saved) return onUpdate({ stocks: saved.stocks, loaded: saved.stocks.length, total: UNIVERSE.length, demo: saved.demo });
+  if (saved) return onUpdate({ stocks: saved.stocks, loaded: saved.stocks.length, total: saved.stocks.length, demo: saved.demo, scan: saved.scan });
+
+  // Step 1: the whole-market scan (every NYSE and Nasdaq company's annual report)
+  const first = await getJSON('/api/candidates', signal);
+  if (!first) return;
+  if (first.status === 'offline') return useDemo(onUpdate);
+  if (first.status === 'locked') return onUpdate({ stocks: [], error: 'Open any stock and enter your passcode first.' });
+  const candidates = first.status === 'ok' && !first.body.fallback ? first.body.candidates : null;
+  if (!candidates?.length) return loadFixedList({ onUpdate, signal }); // SEC unavailable: the built-in list
+
+  // Step 2: price, valuation and momentum for the finalists, best first
+  const scan = { scanned: first.body.scanned, listed: first.body.listed, year: first.body.year };
+  const bySymbol = new Map(candidates.map((c) => [c.symbol, c]));
+  const stocks = [];
+  onUpdate({ stocks: [], loaded: 0, total: candidates.length, scan });
+  for (let i = 0; i < candidates.length; i += CHUNK) {
+    if (signal.aborted) return;
+    const symbols = candidates.slice(i, i + CHUNK).map((c) => c.symbol);
+    const started = Date.now();
+    const r = await getJSON(`/api/screen?symbols=${encodeURIComponent(symbols.join(','))}`, signal);
+    if (!r) return;
+    if (r.status === 'offline') return useDemo(onUpdate);
+    if (r.status === 'locked') return onUpdate({ stocks, error: 'Open any stock and enter your passcode first.' });
+    if (r.status !== 'ok') return onUpdate({ stocks, scan, error: r.body?.message || "Couldn't load the screener. Try again in a minute." });
+    stocks.push(...r.body.stocks.map((st) => mergeSec(st, bySymbol.get(st.symbol))));
+    const done = i + CHUNK >= candidates.length;
+    // A slow answer came fresh from Finnhub (not the cache): pause so the free limit isn't hit
+    const pause = !done && Date.now() - started > 1500 ? 60_000 : 0;
+    onUpdate({ stocks: [...stocks], loaded: Math.min(i + CHUNK, candidates.length), total: candidates.length, waiting: pause / 1000, scan });
+    if (done) return remember(stocks, false, scan);
+    if (pause) await wait(pause, signal);
+  }
+}
+
+const CHUNK = 15;
+
+// The SEC's annual-report numbers fill in anything Finnhub didn't have
+function mergeSec(stock, c) {
+  if (!c) return stock;
+  return {
+    ...stock,
+    name: stock.name && stock.name !== stock.symbol ? stock.name : titleCase(c.name),
+    exchange: c.exchange,
+    revenue: c.revenue,
+    revenueGrowth: stock.revenueGrowth ?? c.revenueGrowthSec,
+    netMargin: stock.netMargin ?? c.netMarginSec,
+    roe: stock.roe ?? c.roeSec,
+    fcfMargin: c.fcfMargin,
+    businessScore: c.businessScore,
+  };
+}
+
+const titleCase = (name) => String(name ?? '').toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase());
+
+// Returns { status: 'ok' | 'offline' | 'locked' | 'error', body } or null if cancelled
+async function getJSON(path, signal) {
+  let res;
+  try {
+    res = await fetch(path, { headers: { Accept: 'application/json', ...passcodeHeaders() }, signal });
+  } catch (err) {
+    return err.name === 'AbortError' ? null : { status: 'offline' };
+  }
+  if (!(res.headers.get('content-type') || '').includes('json') || res.status === 503) return { status: 'offline' };
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 401) return { status: 'locked' };
+  return { status: res.ok ? 'ok' : 'error', body };
+}
+
+function wait(ms, signal) {
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true });
+  });
+}
+
+// No backend or no key: made-up numbers so the screen can be tried
+function useDemo(onUpdate) {
+  const demo = demoStocks();
+  remember(demo, true, null);
+  onUpdate({ stocks: demo, loaded: demo.length, total: demo.length, demo: true });
+}
+
+// Fallback when the SEC scan isn't available: the built-in list of well-known stocks
+async function loadFixedList({ onUpdate, signal }) {
   const stocks = [];
   for (let set = 0; ; set++) {
     if (signal.aborted) return;
     const started = Date.now();
-    let res;
-    try {
-      res = await fetch(`/api/screen?set=${set}`, { headers: { Accept: 'application/json', ...passcodeHeaders() }, signal });
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      res = null;
-    }
-    const isJson = res && (res.headers.get('content-type') || '').includes('json');
-    if (!isJson || res.status === 503) {
-      // No backend or no key: made-up numbers so the screen can be tried
-      const demo = demoStocks();
-      remember(demo, true);
-      return onUpdate({ stocks: demo, loaded: demo.length, total: demo.length, demo: true });
-    }
-    const body = await res.json().catch(() => ({}));
-    if (res.status === 401) return onUpdate({ stocks, error: 'Open any stock and enter your passcode first.' });
-    if (!res.ok) return onUpdate({ stocks, error: body.message || "Couldn't load the screener. Try again in a minute." });
-    stocks.push(...body.stocks);
-    const done = set + 1 >= body.sets;
-    // A slow answer means it came fresh from Finnhub (not the cache): pause before the next batch
+    const r = await getJSON(`/api/screen?set=${set}`, signal);
+    if (!r) return;
+    if (r.status === 'offline') return useDemo(onUpdate);
+    if (r.status === 'locked') return onUpdate({ stocks, error: 'Open any stock and enter your passcode first.' });
+    if (r.status !== 'ok') return onUpdate({ stocks, error: r.body?.message || "Couldn't load the screener. Try again in a minute." });
+    stocks.push(...r.body.stocks);
+    const done = set + 1 >= r.body.sets;
     const pause = !done && Date.now() - started > 1500 ? 60_000 : 0;
-    onUpdate({ stocks: [...stocks], loaded: stocks.length, total: UNIVERSE.length, waiting: pause ? Math.round(pause / 1000) : 0 });
-    if (done) { remember(stocks, false); return; }
-    if (pause) await new Promise((resolve) => { const t = setTimeout(resolve, pause); signal.addEventListener('abort', () => { clearTimeout(t); resolve(); }, { once: true }); });
+    onUpdate({ stocks: [...stocks], loaded: stocks.length, total: UNIVERSE.length, waiting: pause / 1000 });
+    if (done) return remember(stocks, false, null);
+    if (pause) await wait(pause, signal);
   }
 }
 
-function remember(stocks, demo) {
-  try { localStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), stocks, demo, complete: true })); } catch { /* storage full */ }
+function remember(stocks, demo, scan) {
+  try { localStorage.setItem(CACHE, JSON.stringify({ at: Date.now(), stocks, demo, scan, complete: true })); } catch { /* storage full */ }
 }
 
 export function forgetScreen() {
@@ -380,17 +494,21 @@ const LAYOUTS = {
 
 // view: { preset, sector, maxPe, stocks, loaded, total, waiting, demo, error, showAll, charts }
 // onList: the tickers already on your watchlist
-export function discoverHTML(view, onList) {
+// isNew(symbol): true if it entered this screen since you last looked
+export function discoverHTML(view, onList, isNew = () => false) {
   const p = PRESETS.find((x) => x.key === view.preset) ?? PRESETS[0];
   const results = view.stocks ? runScreen(view.stocks, view) : [];
   const horizon = HORIZONS.find(([key]) => key === p.group);
   const tabs = HORIZONS.map(([key, label]) => `<button type="button" role="tab" data-horizon="${key}" aria-selected="${key === p.group}">${label}</button>`).join('');
   const chips = PRESETS.filter((x) => x.group === p.group)
     .map((x) => `<button type="button" class="chip${x.key === p.key ? ' on' : ''}" data-preset="${x.key}">${x.name}</button>`).join('');
-  const sectors = ['<option value="">All sectors</option>', ...SECTORS.map((s) => `<option value="${esc(s)}"${s === view.sector ? ' selected' : ''}>${esc(s)}</option>`)].join('');
+  const sectorList = view.stocks?.length ? [...new Set(view.stocks.map((s) => s.sector).filter(Boolean))].sort() : SECTORS;
+  const sectors = ['<option value="">All industries</option>', ...sectorList.map((s) => `<option value="${esc(s)}"${s === view.sector ? ' selected' : ''}>${esc(s)}</option>`)].join('');
+  const sizes = ['<option value="">Any size</option>', ...SIZES.map(([key, label]) => `<option value="${key}"${key === view.size ? ' selected' : ''}>${label}</option>`)].join('');
+  const scanLine = view.scan ? `Scanned ${view.scan.scanned.toLocaleString('en-US')} US companies · ` : '';
   const loading = view.total && view.loaded < view.total
-    ? `<p class="muted-line"><span class="spinner"></span>Loaded ${view.loaded} of ${view.total} stocks${view.waiting ? ` · next batch in ${view.waiting}s (keeps you inside the free data limit)` : '…'}</p>`
-    : !view.stocks && !view.error ? '<p class="muted-line"><span class="spinner"></span>Loading stocks…</p>' : '';
+    ? `<p class="muted-line"><span class="spinner"></span>${scanLine}checking the best ${view.total} (${view.loaded} done)${view.waiting ? ` · next batch in ${view.waiting}s (keeps you inside the free data limit)` : '…'}</p>`
+    : !view.stocks && !view.error ? '<p class="muted-line"><span class="spinner"></span>Scanning every NYSE and Nasdaq company…</p>' : '';
 
   const LIMIT = 25;
   const shown = view.showAll ? results : results.slice(0, LIMIT);
@@ -408,12 +526,22 @@ export function discoverHTML(view, onList) {
       <td>${c.rsi.value != null ? c.rsi.value.toFixed(0) : f.DASH}</td>
       <td class="${c.trend.tone}">${esc(c.trend.label)}</td>`;
   };
-  const rows = shown.map((s) => `<tr data-ticker="${esc(s.symbol)}" data-name="${esc(s.name)}" tabindex="0">
-      <th scope="row" class="sticky"><span class="cmp-ticker">${esc(s.symbol)}</span>${onList.has(s.symbol) ? '<span class="on-list" title="On your list">★</span>' : ''}<span class="help">${esc(s.name)}</span></th>
+  const rows = shown.map((s) => {
+    const why = reasonsFor(s, p.group);
+    const mark = onList.has(s.symbol)
+      ? '<span class="on-list" title="On your watchlist">★</span>'
+      : `<button type="button" class="row-add" data-add="${esc(s.symbol)}" data-name="${esc(s.name)}" data-price="${s.price ?? ''}" aria-label="Add ${esc(s.symbol)} to your watchlist">+</button>`;
+    return `<tr data-ticker="${esc(s.symbol)}" data-name="${esc(s.name)}" tabindex="0">
+      <th scope="row" class="sticky">
+        <span class="row-top"><span class="cmp-ticker">${esc(s.symbol)}</span>${isNew(s.symbol) ? '<span class="new-badge">New</span>' : ''}${mark}</span>
+        <span class="help">${esc(s.name)}</span>
+        ${why.length ? `<span class="why">${why.map(esc).join(' · ')}</span>` : ''}
+      </th>
       ${COLUMNS[cols[0]][1](s)}
       ${chartCells(s)}
       ${cols.slice(1).map((c) => COLUMNS[c][1](s)).join('')}
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   // The chart check sits right after the score, where you can see it without scrolling
   const heads = ['Stock', COLUMNS[cols[0]][0], ...(withCharts ? ['Chart check', 'RSI', 'Chart trend'] : []), ...cols.slice(1).map((c) => COLUMNS[c][0])];
   const top = shown.slice(0, 8).map((s) => s.symbol);
@@ -432,7 +560,9 @@ export function discoverHTML(view, onList) {
     </nav>
     <header class="discover-head">
       <h1>Discover</h1>
-      <p class="muted-line">Ready-made screens across ${UNIVERSE.length} well-known US companies, for every time frame. Tap one to research it fully.</p>
+      <p class="muted-line">${view.scan
+        ? `Scans all ${view.scan.listed.toLocaleString('en-US')} NYSE and Nasdaq companies' latest annual reports (${view.scan.year}), keeps the ${view.total} strongest businesses and fastest growers, then checks their price, valuation and trend. Well-known names only show up if their numbers earn it.`
+        : `Ready-made screens for every time frame. Tap a stock to research it, or + to add it.`}</p>
     </header>
     ${view.demo ? '<div class="notice demo"><strong>Demo numbers.</strong> Real numbers appear once the app is on Vercel with your Finnhub key.</div>' : ''}
     <div class="segmented horizons" style="--n:${HORIZONS.length}; --i:${HORIZONS.indexOf(horizon)}" role="tablist" aria-label="Time frame">
@@ -446,7 +576,8 @@ export function discoverHTML(view, onList) {
       ${p.group === 'swing' ? '<p class="muted-line warn-line">Swing trading is the riskiest way to use this app. Most short-term traders do worse than simply holding an index fund. Keep positions small and always set a stop (Journal tab → How much should I buy?).</p>' : ''}
     </div>
     <div class="screen-filters">
-      <label class="sort-pick"><span>Sector</span><select data-filter="sector">${sectors}</select></label>
+      <label class="sort-pick"><span>Industry</span><select data-filter="sector">${sectors}</select></label>
+      <label class="sort-pick"><span>Size</span><select data-filter="size">${sizes}</select></label>
       <label class="sort-pick"><span>Max P/E</span><input data-filter="maxPe" inputmode="decimal" placeholder="Any" value="${view.maxPe ?? ''}" size="4"></label>
     </div>
     ${loading}
@@ -461,7 +592,7 @@ export function discoverHTML(view, onList) {
       </div>
       ${results.length > LIMIT && !view.showAll ? `<button type="button" class="text-btn show-all" data-action="show-all">Show all ${results.length}</button>` : ''}
       <div class="chart-check">${chartButton}</div>` : '<div class="card-plain empty-card"><p class="empty-title">No matches right now</p><p class="muted-line">Markets change daily. Try another screen, clear the filters, or check back tomorrow.</p></div>') : ''}
-    <p class="fineprint"><strong>Long-term score</strong>: the business (value, growth, profitability, financial health) using the same rules as the app score, without the chart, DCF and analyst parts. <strong>Swing score</strong>: the price trend (6-month return, strength vs. the S&P 500, distance from the 52-week high, volume). A screen is a starting point for research, not a buy list.</p>`;
+    <p class="fineprint">Covers US companies that file annual reports with the SEC; foreign companies and OTC penny stocks aren't included. <strong>Long-term score</strong>: the business (value, growth, profitability, financial health) using the same rules as the app score, without the chart, DCF and analyst parts. <strong>Swing score</strong>: the price trend (6-month return, strength vs. the S&P 500, distance from the 52-week high, volume). A screen is a starting point for research, not a buy list.</p>`;
 }
 
 // Made-up but steady numbers for the preview
