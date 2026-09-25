@@ -6,7 +6,7 @@
 // Mac and the iPhone show the same ideas.
 
 import { fail, guard } from '../lib/http.js';
-import { storage } from './notes.js';
+import { storage, blobConfigured } from './notes.js';
 
 const MAX_BYTES = 3_000_000;
 const PATH = 'journal/ideas.json';
@@ -16,7 +16,7 @@ const notConfigured = () => Response.json({ error: 'not_configured', service: 'S
 export async function GET(request) {
   try {
     guard(request);
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return notConfigured();
+    if (!blobConfigured()) return notConfigured();
     const { get } = await storage();
     const found = await get(PATH, { access: 'private', useCache: false });
     if (!found || found.statusCode !== 200) return Response.json({ journal: null }, { headers: noStore });
@@ -30,7 +30,7 @@ export async function GET(request) {
 export async function PUT(request) {
   try {
     guard(request);
-    if (!process.env.BLOB_READ_WRITE_TOKEN) return notConfigured();
+    if (!blobConfigured()) return notConfigured();
     const text = await request.text();
     if (text.length > MAX_BYTES) return Response.json({ error: 'bad_request', message: 'Journal is too large.' }, { status: 413, headers: noStore });
     const { ideas, deleted } = JSON.parse(text || '{}');

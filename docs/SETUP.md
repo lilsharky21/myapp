@@ -64,16 +64,26 @@ That's it: no commands to retype after restarts. To undo it, run
 loads into memory. The app starts loading it as soon as you open a stock, and
 keeps it loaded for 30 minutes.
 
-**Sync, so your phone shows the same journal and the Mac's research (about 2 minutes):**
-1. In Vercel, open your project → **Storage** → **Create** → **Blob**.
-2. Give it any name and **Connect** it to your project. Vercel adds a setting
-   called `BLOB_READ_WRITE_TOKEN` for you, so there's nothing to copy.
-3. Redeploy (see step 7).
+**Sync, so your phone and Mac show the same journal and research (about 3 minutes):**
 
-Your journal and notes are stored as private files that only your app can read.
-Once it's on, the bottom of the watchlist says **Synced across your devices**.
-Blob is like a private folder in your Vercel account: the app saves a file
-there, and your other devices read it.
+Blob is like a private folder inside your Vercel account. The app saves your
+journal and AI notes there as files, and your other devices read them.
+There's no key to copy and no code to write: the app already has everything.
+
+1. In Vercel, open your **myapp** project and click the **Storage** tab.
+2. Click **Create Database** (or **Create**), choose **Blob**, then **Continue**.
+3. Name it anything (like `thesis`). If it asks **Public or Private**, choose **Private**.
+   Click **Create**.
+4. When it asks which project to connect, choose **myapp**, keep every environment
+   ticked, and click **Connect**. Vercel adds a setting to your project for you
+   (`BLOB_READ_WRITE_TOKEN` or `BLOB_STORE_ID`, depending on your account; either works).
+5. **Redeploy**: go to **Deployments**, click **⋯** on the top one, then **Redeploy**.
+   Settings only reach the app after a redeploy.
+6. Open your app, scroll to the bottom, and open **Data connections**. **Sync** should
+   show ✓. The line above it should say **Synced across your devices**.
+
+If Sync shows **!** with a message, the message says what's wrong: usually the store
+isn't connected to this project, or it was made Public (make a new Private one).
 
 **Optional, 18+ only: Gemini.** If you're 18 or older, a free Gemini key from
 aistudio.google.com/apikey (added as `GEMINI_API_KEY`) lets the phone write

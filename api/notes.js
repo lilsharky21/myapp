@@ -19,7 +19,11 @@ export function useStorageForTests(fake) {
   blob = fake;
 }
 
-const configured = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+// Vercel connects Blob storage in one of two ways, depending on the project:
+// a BLOB_READ_WRITE_TOKEN setting, or a BLOB_STORE_ID setting (the storage
+// library then signs in automatically). Either one means it's set up.
+export const blobConfigured = () => Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID);
+const configured = blobConfigured;
 const pathFor = (ticker) => `notes/${ticker}.json`;
 
 export async function GET(request) {

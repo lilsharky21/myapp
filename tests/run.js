@@ -796,6 +796,28 @@ await test('/api/market: markets, sectors, your earnings and headlines in one an
   process.env.FINNHUB_API_KEY = 'test-key';
 });
 
+await test('Sync works with either Blob setting Vercel adds (token or store id)', async () => {
+  const { useStorageForTests } = await import('../api/notes.js');
+  const files = new Map();
+  useStorageForTests({
+    put: async (path, body) => { files.set(path, body); return { pathname: path }; },
+    get: async (path) => (files.has(path) ? { statusCode: 200, stream: new Response(files.get(path)).body } : null),
+  });
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  process.env.BLOB_STORE_ID = 'store_abc123';
+  assert.equal((await call('notes', '')).body.configured, true);
+  assert.equal((await call('journal', '')).status, 200);
+  assert.equal((await call('status', '')).body.notes.status, 'ok');
+  // Storage that refuses: a clear message instead of a vague error
+  useStorageForTests({ put: async () => { throw new Error('Vercel Blob: Access denied, please provide a valid token for this resource.'); }, get: async () => null });
+  const bad = (await call('status', '')).body.notes;
+  assert.equal(bad.status, 'error');
+  assert.match(bad.message, /Access denied/);
+  assert.match(bad.message, /Private/);
+  delete process.env.BLOB_STORE_ID;
+  assert.equal((await call('status', '')).body.notes.status, 'missing');
+});
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);

@@ -66,7 +66,7 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | Price, company info, key stats, analysts, earnings, insiders, news | Finnhub | `FINNHUB_API_KEY` |
 | Price history (charts and technicals) | Twelve Data | `TWELVEDATA_API_KEY` |
 | AI analyst | Ollama, running on your Mac (free, private) | None |
-| Journal and research notes on every device | Vercel Blob storage in your own account | `BLOB_READ_WRITE_TOKEN` (added by Vercel) |
+| Journal and research notes on every device | Vercel Blob storage in your own account | `BLOB_READ_WRITE_TOKEN` or `BLOB_STORE_ID` (added by Vercel when you connect Blob) |
 | Optional cloud AI (18+) | Google Gemini free tier | `GEMINI_API_KEY` |
 
 ## Put it online (Vercel) and add your keys

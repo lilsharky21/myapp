@@ -3,7 +3,7 @@
 // The app's "Data connections" card uses this to show ✓ or how to fix it.
 
 import { guard, fail, fetchJSON } from '../lib/http.js';
-import { storage } from './notes.js';
+import { storage, blobConfigured } from './notes.js';
 
 export async function GET(request) {
   try {
@@ -21,11 +21,7 @@ export async function GET(request) {
         fetchJSON('https://www.sec.gov/files/company_tickers.json', { headers: { 'User-Agent': agent } })),
       check('GEMINI_API_KEY', (key) =>
         fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, { headers: { 'x-goog-api-key': key } }), { badRequestMeansRejected: true, optional: 'Optional. Research is written on your Mac instead.' }),
-      check('BLOB_READ_WRITE_TOKEN', async () => {
-        // Reading a note that doesn't exist proves the storage answers
-        const { get } = await storage();
-        await get('notes/__check__.json', { access: 'private', useCache: false });
-      }, { missingMessage: "Turn on sync so your phone shows the same journal and your Mac's research: Vercel → Storage → Create → Blob → connect, then redeploy (see docs/SETUP.md)." }),
+      blobConfigured() ? checkBlob() : { status: 'missing', message: "Turn on sync so your phone shows the same journal and your Mac's research: Vercel → Storage → Create → Blob → connect, then redeploy (see docs/SETUP.md)." },
     ]);
     return Response.json({
       finnhub,
@@ -38,6 +34,24 @@ export async function GET(request) {
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     return fail(err);
+  }
+}
+
+// Save and read back a tiny private file: proves sync can both write and read
+async function checkBlob() {
+  try {
+    const { put, get } = await storage();
+    const stamp = String(Date.now());
+    await put('notes/__check__.json', stamp, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: 'application/json' });
+    const found = await get('notes/__check__.json', { access: 'private', useCache: false });
+    if (!found || found.statusCode !== 200) throw new Error('saved a test file but could not read it back');
+    return { status: 'ok' };
+  } catch (err) {
+    const text = String(err.message || err).replace(/^Vercel Blob: /, '');
+    const hint = /access denied|forbidden|public/i.test(text)
+      ? ' Your Blob store may be set to Public. In Vercel → Storage, create a new Blob store and choose Private, connect it to this project, then redeploy.'
+      : ' In Vercel → Storage, open the Blob store → Projects, check it is connected to this project for all environments, then redeploy.';
+    return { status: 'error', message: `Blob storage answered with an error (${text}).${hint}` };
   }
 }
 
