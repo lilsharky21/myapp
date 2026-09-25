@@ -40,18 +40,39 @@ Free plan: 60 requests a minute, which is plenty for one person.
 
 Free plan: 800 requests a day. The app saves answers so it uses very few.
 
-## 4. Gemini: the AI analyst on your phone
+## 4. The AI analyst: on your Mac, synced to your phone
 
-1. Go to **aistudio.google.com/apikey** and sign in with a Google account.
-2. Click **Create API key**. If it asks for a project, let it create one.
-3. Keep the key visible.
+The AI runs on your MacBook with **Ollama**: free software, no account needed,
+and private (nothing leaves your Mac). Notes it writes are saved to your Vercel
+account so your iPhone shows them too.
 
-Good to know: on the free tier, Google may use what you send to improve its
-models (the app only sends public market data and your thesis). Google's API
-terms also have an age requirement.
+**On the Mac (about 10 minutes, mostly download time):**
+1. Go to **ollama.com**, download Ollama for macOS, and open it. A llama icon
+   appears in the menu bar.
+2. Open **Terminal** (press ⌘ Space, type Terminal) and run:
+   ```
+   ollama pull qwen3:14b
+   ```
+   This downloads the AI model (about 9 GB). Any model works; this one is a good
+   balance of smart and fast on an M5 Pro.
+3. Let your app talk to it. Replace the address with **your** Vercel address:
+   ```
+   launchctl setenv OLLAMA_ORIGINS "https://myapp-abc123.vercel.app"
+   ```
+4. Quit Ollama from the menu-bar icon and open it again.
+5. In the app on your Mac, open a stock → **Research** → **Write my research note**.
 
-On your Mac you can use local AI instead, which is free and private. See
-"Local AI on your Mac" in the README.
+**Note sync, so the phone shows the Mac's research (about 2 minutes):**
+1. In Vercel, open your project → **Storage** → **Create** → **Blob**.
+2. Give it any name and **Connect** it to your project. Vercel adds a setting
+   called `BLOB_READ_WRITE_TOKEN` for you, so there's nothing to copy.
+3. Redeploy (see step 7).
+
+Notes are stored as private files that only your app can read.
+
+**Optional, 18+ only: Gemini.** If you're 18 or older, a free Gemini key from
+aistudio.google.com/apikey (added as `GEMINI_API_KEY`) lets the phone write
+notes by itself. You don't need it; the Mac does the same job.
 
 ## 5. SEC: no sign-up
 
@@ -72,7 +93,6 @@ devices. Without one, anyone who found your web address could use up your free l
    |---|---|
    | `FINNHUB_API_KEY` | your Finnhub key |
    | `TWELVEDATA_API_KEY` | your Twelve Data key |
-   | `GEMINI_API_KEY` | your Gemini key |
    | `SEC_USER_AGENT` | `Thesis Journal you@example.com` (your email) |
    | `APP_PASSCODE` | the passcode you made up |
 
@@ -84,7 +104,7 @@ devices. Without one, anyone who found your web address could use up your free l
 
 1. Open your app's address on your phone.
 2. Scroll to the bottom of the watchlist and tap **Data connections**.
-3. Each service should show **✓**. Anything else shows what to fix.
+3. Each service should show **✓** (Gemini shows ○ "optional", which is fine). Anything else shows what to fix.
 4. Open any stock. The "Demo numbers" banner should be gone.
 
 Then, on your iPhone: tap **Share → Add to Home Screen** to use it like an app.
@@ -99,3 +119,5 @@ Then, on your iPhone: tap **Share → Add to Home Screen** to use it like an app
 | Still "Demo numbers" | You probably didn't redeploy after adding keys. |
 | Asked for a passcode | Type the `APP_PASSCODE` you chose. |
 | Data connections says "Available once the app is on Vercel" | You're on the preview link, not your Vercel address. |
+| Research says "No AI" on the Mac | Make sure Ollama is open (menu-bar llama), you ran step 4.3 with your exact address, and you restarted Ollama. |
+| Phone doesn't show the Mac's note | Check **Note sync** is ✓ in Data connections, and write the note on the Mac *after* turning it on. |

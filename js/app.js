@@ -424,7 +424,8 @@ const SERVICES = [
   ['finnhub', 'Finnhub', 'Prices, stats, analysts, earnings, insiders, news'],
   ['twelvedata', 'Twelve Data', 'Charts and technicals'],
   ['sec', 'SEC EDGAR', 'Financial statements and filings'],
-  ['gemini', 'Gemini', 'AI research on your phone'],
+  ['notes', 'Note sync', 'Research from your Mac, on your phone'],
+  ['gemini', 'Gemini', 'Optional cloud AI (18+)'],
   ['passcode', 'Passcode', 'Keeps strangers out'],
 ];
 

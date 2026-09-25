@@ -35,7 +35,7 @@ function bigThree(ctx) {
     aiBody = `
       <p class="big-rating ${ratingTone(r.rating)}">${r.rating}</p>
       <p class="muted-line">${r.confidence}% confident · ${esc(ai.entry.engine)} · ${f.ago(ai.entry.at)}</p>
-      <button type="button" class="text-btn small" data-action="run-ai">Run again</button>`;
+      ${ai.engines?.length === 0 ? '<p class="muted-line">New notes are written on your Mac.</p>' : '<button type="button" class="text-btn small" data-action="run-ai">Run again</button>'}`;
   } else if (ai.state === 'running') {
     aiBody = `<p class="big-rating muted"><span class="spinner"></span>Thinking</p><p class="muted-line" data-ai-progress>${esc(ai.progress || 'Reading every tab of data. This can take up to a minute.')}</p>
       <button type="button" class="text-btn small" data-action="stop-ai">Stop</button>`;
@@ -63,7 +63,7 @@ function setupHelp() {
   const origin = location.protocol.startsWith('http') && !location.hostname.endsWith('claude.ai') ? location.origin : 'https://YOUR-APP.vercel.app';
   return `<div class="setup-help">
     <p class="muted-line"><strong>On your Mac:</strong> install Ollama from ollama.com, then in Terminal run <code>ollama pull qwen3:14b</code>. Let this app talk to it with <code>launchctl setenv OLLAMA_ORIGINS "${esc(origin)}"</code> and restart Ollama.</p>
-    <p class="muted-line"><strong>On your phone:</strong> add a free <code>GEMINI_API_KEY</code> from aistudio.google.com in Vercel's settings.</p>
+    <p class="muted-line"><strong>On your phone:</strong> notes written on your Mac show up here automatically once note sync is on (Vercel → Storage → Blob). Full steps: docs/SETUP.md.</p>
   </div>`;
 }
 

@@ -10,7 +10,9 @@
 // Which AI runs, in order of preference:
 //   1. "Your Mac"  - Ollama running on your MacBook (free, private, no limits)
 //   2. "Claude"    - inside the claude.ai preview, using your own Claude plan
-//   3. "Gemini"    - Google's free tier, through our backend (for the phone)
+//   3. "Gemini"    - optional, only if a GEMINI_API_KEY is set on Vercel
+// Notes written on the Mac are saved to your Vercel account, so your phone
+// shows them too (see api/notes.js).
 // ==========================================================================
 
 import { passcodeHeaders } from './api.js';
@@ -144,7 +146,32 @@ export async function runResearch(ticker, bundle, { signal, onProgress } = {}) {
   const result = normalize(raw);
   const entry = { result, engine: engine.label, at: Date.now(), demo: bundle.dataMode === 'demo' };
   saveResearch(ticker, entry);
+  // Share it with your other devices (the phone reads what the Mac wrote).
+  // The preview has no backend, so it skips this.
+  if (engine.id !== 'claude') shareNote(ticker, entry);
   return entry;
+}
+
+function shareNote(ticker, entry) {
+  fetch('/api/notes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...passcodeHeaders() },
+    body: JSON.stringify({ ticker, entry }),
+  }).catch(() => { /* syncing is a bonus; the note is already saved on this device */ });
+}
+
+// The latest note saved from any of your devices, or null
+export async function loadSharedNote(ticker) {
+  if (typeof window.claude?.use === 'function') return null; // the preview has no backend
+  try {
+    const res = await fetch(`/api/notes?symbol=${encodeURIComponent(ticker)}`, { headers: { Accept: 'application/json', ...passcodeHeaders() } });
+    if (!res.ok || !(res.headers.get('content-type') || '').includes('json')) return null;
+    const { entry } = await res.json();
+    if (!entry?.result || typeof entry.at !== 'number') return null;
+    return { ...entry, result: normalize(entry.result), synced: true };
+  } catch {
+    return null;
+  }
 }
 
 function claudeMessage(code) {

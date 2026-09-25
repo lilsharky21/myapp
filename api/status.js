@@ -3,12 +3,13 @@
 // The app's "Data connections" card uses this to show ✓ or how to fix it.
 
 import { guard, fail, fetchJSON } from '../lib/http.js';
+import { storage } from './notes.js';
 
 export async function GET(request) {
   try {
     guard(request);
     const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    const [finnhub, twelvedata, sec, gemini] = await Promise.all([
+    const [finnhub, twelvedata, sec, gemini, notes] = await Promise.all([
       check('FINNHUB_API_KEY', (key) =>
         fetchJSON(`https://finnhub.io/api/v1/quote?symbol=AAPL&token=${encodeURIComponent(key)}`)),
       check('TWELVEDATA_API_KEY', async (key) => {
@@ -19,13 +20,19 @@ export async function GET(request) {
       check('SEC_USER_AGENT', (agent) =>
         fetchJSON('https://www.sec.gov/files/company_tickers.json', { headers: { 'User-Agent': agent } })),
       check('GEMINI_API_KEY', (key) =>
-        fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, { headers: { 'x-goog-api-key': key } }), { badRequestMeansRejected: true }),
+        fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, { headers: { 'x-goog-api-key': key } }), { badRequestMeansRejected: true, optional: 'Optional. Research is written on your Mac instead.' }),
+      check('BLOB_READ_WRITE_TOKEN', async () => {
+        // Reading a note that doesn't exist proves the storage answers
+        const { get } = await storage();
+        await get('notes/__check__.json', { access: 'private', useCache: false });
+      }, { missingMessage: 'Turn on note sync so your phone shows research from your Mac: Vercel → Storage → Create → Blob → connect, then redeploy.' }),
     ]);
     return Response.json({
       finnhub,
       twelvedata,
       sec,
       gemini,
+      notes,
       passcode: process.env.APP_PASSCODE ? { status: 'ok' } : { status: 'optional', message: 'No passcode set. Anyone with your link could use your free limits.' },
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
@@ -33,9 +40,10 @@ export async function GET(request) {
   }
 }
 
-async function check(envName, run, { badRequestMeansRejected = false } = {}) {
+async function check(envName, run, { badRequestMeansRejected = false, optional = null, missingMessage = null } = {}) {
   const value = process.env[envName];
-  if (!value) return { status: 'missing', message: `${envName} isn't set in Vercel yet.` };
+  if (!value && optional) return { status: 'optional', message: optional };
+  if (!value) return { status: 'missing', message: missingMessage ?? `${envName} isn't set in Vercel yet.` };
   try {
     await run(value);
     return { status: 'ok' };

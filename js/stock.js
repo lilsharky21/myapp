@@ -11,7 +11,7 @@ import { technicalSummary, riskStats, seasonality } from './indicators.js';
 import { PriceChart } from './charts.js';
 import { appScore, analystConsensus, piotroski, altmanZ, median } from './ratings.js';
 import { dcf, dcfInputs, impliedGrowth } from './valuation.js';
-import { findEngines, savedResearch, runResearch } from './ai.js';
+import { findEngines, savedResearch, runResearch, loadSharedNote } from './ai.js';
 import { scenarios, priceLevels, loadChecks, saveChecks } from './research.js';
 import { dotsHTML, esc, pick } from './ui.js';
 import { CONVICTION_WORDS } from './journal.js';
@@ -77,6 +77,14 @@ export function openStockPage(root, idea, { onEdit, onBack, onRated }) {
   view.timer = setInterval(refreshQuote, 30_000);
 
   const v = view;
+  // A newer note written on another device (your Mac) wins
+  loadSharedNote(idea.ticker).then((shared) => {
+    if (view !== v || !shared || (v.ai.entry && v.ai.entry.at >= shared.at)) return;
+    v.ai.entry = shared;
+    if (v.ai.state !== 'running') v.ai.state = 'done';
+    renderPanel();
+    if (!anyLoading()) reportRatings();
+  });
   findEngines().then((engines) => {
     if (view !== v) return;
     v.ai.engines = engines;

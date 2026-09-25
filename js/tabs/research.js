@@ -40,7 +40,7 @@ function startCard(ctx) {
       <p class="muted-line" data-ai-progress>${esc(ai.progress)}</p>
       <button type="button" class="text-btn small" data-action="stop-ai">Stop</button>`;
   } else if (ai.state === 'unavailable') {
-    action = '<p class="muted-line">No AI is set up yet. See the Ratings tab for the two-minute setup.</p><button type="button" class="text-btn small" data-goto="ratings">Show setup</button>';
+    action = '<p class="muted-line">Research notes are written by the AI on your Mac. Open this stock in the app on your Mac and tap <strong>Write my research note</strong>, and it shows up here too.</p><button type="button" class="text-btn small" data-goto="ratings">How to set up the Mac</button>';
   } else {
     action = `
       ${ai.state === 'error' ? `<p class="error-text">${esc(ai.error)}</p>` : ''}
@@ -94,7 +94,7 @@ function bottomLine(ctx, r) {
         </div>
         <div class="bl-meta">
           <span>${readingMinutes(r)} min read · ${esc(e.engine)} · ${f.ago(e.at)}</span>
-          <button type="button" class="text-btn small" data-action="run-ai">Run again</button>
+          ${ctx.ai.engines?.length === 0 ? '<span>New notes are written on your Mac</span>' : '<button type="button" class="text-btn small" data-action="run-ai">Run again</button>'}
         </div>
       </div>
     </section>`;

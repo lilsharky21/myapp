@@ -50,13 +50,14 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | Financial statements, SEC filings | SEC EDGAR | No, just `SEC_USER_AGENT` |
 | Price, company info, key stats, analysts, earnings, insiders, news | Finnhub | `FINNHUB_API_KEY` |
 | Price history (charts and technicals) | Twelve Data | `TWELVEDATA_API_KEY` |
-| AI on your phone | Google Gemini free tier | `GEMINI_API_KEY` |
-| AI on your Mac | Ollama, running on the Mac itself | None |
+| AI analyst | Ollama, running on your Mac (free, private) | None |
+| Research notes on your phone | Vercel Blob storage in your own account | `BLOB_READ_WRITE_TOKEN` (added by Vercel) |
+| Optional cloud AI (18+) | Google Gemini free tier | `GEMINI_API_KEY` |
 
 ## Put it online (Vercel) and add your keys
 
 **Step-by-step guide: [docs/SETUP.md](docs/SETUP.md).** It covers how to get each free key
-(Finnhub, Twelve Data, Gemini), where to paste them in Vercel, and how to check they work.
+(Finnhub, Twelve Data), setting up the AI on your Mac, syncing notes to your phone, and how to check it all works.
 
 In short: import this repo on vercel.com, add the keys under Settings → Environment
 Variables, redeploy, then open **Data connections** at the bottom of the watchlist to
@@ -69,7 +70,7 @@ see a ✓ for each service.
 3. Let your app's web address talk to it:
    `launchctl setenv OLLAMA_ORIGINS "https://YOUR-APP.vercel.app"`, then quit and reopen Ollama.
 
-When the app is open on the Mac it uses this automatically. On the phone it uses Gemini.
+When the app is open on the Mac it uses this automatically. Notes it writes sync to your phone through Vercel Blob (see docs/SETUP.md).
 
 ## Run it on your computer
 

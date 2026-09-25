@@ -550,6 +550,50 @@ await test('/api/status spots missing and refused keys', async () => {
   }
 });
 
+await test('/api/notes saves a note and reads it back (private, overwritten)', async () => {
+  const { useStorageForTests } = await import('../api/notes.js');
+  const files = new Map();
+  const calls = [];
+  useStorageForTests({
+    put: async (path, body, opts) => { calls.push(opts); files.set(path, body); return { pathname: path }; },
+    get: async (path) => (files.has(path) ? { statusCode: 200, stream: new Response(files.get(path)).body } : null),
+  });
+  const entry = { result: { rating: 'Buy' }, engine: 'Your Mac · qwen3:14b', at: 1790000000000 };
+
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  assert.equal((await call('notes', '')).body.configured, false);
+  assert.equal((await call('notes', '', { method: 'POST', body: JSON.stringify({ ticker: 'nvda', entry }) })).status, 503);
+
+  process.env.BLOB_READ_WRITE_TOKEN = 'test-token';
+  assert.equal((await call('notes', 'symbol=NVDA')).status, 404);
+  const saved = await call('notes', '', { method: 'POST', body: JSON.stringify({ ticker: 'nvda', entry }) });
+  assert.equal(saved.status, 200);
+  assert.equal(calls[0].access, 'private');
+  assert.equal(calls[0].allowOverwrite, true);
+  const got = await call('notes', 'symbol=nvda');
+  assert.equal(got.status, 200);
+  assert.deepEqual(got.body.entry, entry);
+
+  assert.equal((await call('notes', '', { method: 'POST', body: JSON.stringify({ ticker: '../x', entry }) })).status, 400);
+  assert.equal((await call('notes', '', { method: 'POST', body: '{broken' })).status, 400);
+  assert.equal((await call('notes', '', { method: 'POST', body: JSON.stringify({ ticker: 'NVDA', entry: { result: {}, at: 1, pad: 'x'.repeat(300000) } }) })).status, 413);
+
+  process.env.APP_PASSCODE = 'secret';
+  assert.equal((await call('notes', 'symbol=NVDA')).status, 401);
+  delete process.env.APP_PASSCODE;
+});
+
+await test('/api/status: note sync checked, Gemini optional when missing', async () => {
+  delete process.env.GEMINI_API_KEY;
+  const res = await call('status', '');
+  assert.equal(res.body.notes.status, 'ok');
+  assert.equal(res.body.gemini.status, 'optional');
+  delete process.env.BLOB_READ_WRITE_TOKEN;
+  const off = await call('status', '');
+  assert.equal(off.body.notes.status, 'missing');
+  assert.match(off.body.notes.message, /Blob/);
+});
+
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) process.exit(1);
