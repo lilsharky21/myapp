@@ -2113,6 +2113,20 @@ kbd {
 .rec-lessons li { display: grid; gap: 2px; font-family: var(--font-serif); font-size: 16px; line-height: 1.4; }
 .lesson-meta { font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--text-2); }
 
+/* ---------- Discover: time frames and chart check ---------- */
+
+.segmented.horizons { margin-top: 18px; }
+.segmented.horizons button { padding: 0 4px; font-size: 13px; }
+.horizon-about { margin: 8px 4px 0; }
+.preset-check { margin: 10px 0 0 !important; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 14px !important; color: var(--text-2); }
+.preset-about .warn-line { margin-top: 8px; }
+.chart-check { display: grid; justify-items: start; gap: 4px; margin-top: 12px; }
+.chart-check .muted-line { margin: 0; }
+.fin-table td.check-cell { text-align: left; }
+.check-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.check-pill.pass { background: var(--up-soft); color: var(--up); }
+.check-pill.fail { background: var(--seg-bg); color: var(--text-2); }
+
 /* ---------- Ask my Mac (phone) ---------- */
 
 .ask-mac .btn-primary { justify-self: start; }

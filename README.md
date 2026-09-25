@@ -12,7 +12,11 @@ Investors and News.
 - **Compare**: every idea in one sortable table (app score, Wall Street, AI, P/E, growth, DCF value, upside to your target, next earnings, conviction).
 - **Journal tab**: dated notes stamped with the price that day, trades you made (your position, average cost and profit/loss), thesis changes, review reminders every 90 days, and closing an idea with a verdict, a lesson, and how it did against the S&P 500.
 - **Sync**: the same watchlist and journal on your Mac and iPhone (through Blob storage in your own Vercel account), plus Export / Import backups.
-- **Discover**: ready-made screens (Top rated, Quality at a fair price, Fast growers, Cheap vs. profits, Strong balance sheet, Beaten down but profitable, Dividend payers) across ~90 well-known US companies, each with a Quick score. Tap any result to research it.
+- **Discover**: ready-made screens across ~200 well-known US companies, for every time frame, each stock with a **Long-term score** (the business) and a **Swing score** (the price trend):
+  - *Best overall*: Best right now · Great business, rising price
+  - *Long term*: Top long-term score · Quality at a fair price · Compounders · Fast growers · Cheap vs. profits · Strong balance sheet · Dividend payers
+  - *Months*: Growth at a reasonable price · Growth speeding up · Turnarounds · Steady winners
+  - *Swing (days–weeks)*: Pullback in an uptrend · Near a breakout · Momentum leaders · Oversold bounce · Unusual volume, with a **chart check** that confirms each setup with RSI and moving averages
 - **Price alerts**: "tell me when it goes above / below X", with one-tap alerts at your target and key support/resistance levels.
 - **How much should I buy?**: a position size calculator that keeps the loss at your stop to a set share of your account.
 - **Your record** (Closed tab): how often you called it, average return vs. the S&P 500, best and worst calls, whether high-conviction ideas did better, and all your lessons.

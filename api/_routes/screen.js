@@ -1,13 +1,15 @@
-// GET /api/screen?set=0   (sets 0-3)
-// Key numbers for a built-in list of ~90 well-known US stocks across all
-// 11 sectors, for the Discover screener. One Finnhub call per stock, in
-// sets of about 23, and cached for 12 hours, so screening stays well inside
-// the free limit (60 requests a minute).
+// GET /api/screen?set=0
+// Key numbers for ~200 well-known US stocks (js/universe.js), for the Discover
+// screener: business numbers (valuation, growth, margins, debt) for long-term
+// screens, and price momentum (returns, strength vs. the S&P 500, distance from
+// the 52-week high, volume) for swing and short-term screens.
+// Two Finnhub calls per stock (key stats + price), in sets of 25, cached for
+// hours, so screening stays inside the free limit (60 requests a minute).
 
-import { ok, fail, guard, HOUR } from '../../lib/http.js';
+import { ok, fail, guard, HOUR, MINUTE } from '../../lib/http.js';
 import { finnhub } from '../../lib/finnhub.js';
 import { UNIVERSE } from '../../js/universe.js';
-export const SET_SIZE = 23;
+export const SET_SIZE = 25;
 export const SET_COUNT = Math.ceil(UNIVERSE.length / SET_SIZE);
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -21,14 +23,22 @@ export async function GET(request) {
     }
     const list = UNIVERSE.slice(set * SET_SIZE, (set + 1) * SET_SIZE);
     const stocks = [];
-    // 8 at a time: Finnhub also limits bursts (30 a second)
-    for (let i = 0; i < list.length; i += 8) {
-      const chunk = await Promise.allSettled(list.slice(i, i + 8).map(([symbol]) => finnhub('/stock/metric', { symbol, metric: 'all' }, 12 * HOUR)));
-      if (i === 0 && chunk[0].status === 'rejected' && ['not_configured', 'locked'].includes(chunk[0].reason?.code)) throw chunk[0].reason;
-      chunk.forEach((r, k) => {
-        const [symbol, name, sector] = list[i + k];
+    // 5 stocks (10 calls) at a time: Finnhub also limits bursts (30 a second)
+    for (let i = 0; i < list.length; i += 5) {
+      const slice = list.slice(i, i + 5);
+      const [metrics, quotes] = await Promise.all([
+        Promise.allSettled(slice.map(([symbol]) => finnhub('/stock/metric', { symbol, metric: 'all' }, 24 * HOUR))),
+        Promise.allSettled(slice.map(([symbol]) => finnhub('/quote', { symbol }, 30 * MINUTE))),
+      ]);
+      if (i === 0 && metrics[0].status === 'rejected' && ['not_configured', 'locked'].includes(metrics[0].reason?.code)) throw metrics[0].reason;
+      metrics.forEach((r, k) => {
+        const [symbol, name, sector] = slice[k];
         const m = r.status === 'fulfilled' ? r.value?.metric ?? {} : null;
         if (!m) return;
+        const q = quotes[k].status === 'fulfilled' ? quotes[k].value ?? {} : {};
+        const price = num(q.c) || null;
+        const high52 = num(m['52WeekHigh']);
+        const low52 = num(m['52WeekLow']);
         stocks.push({
           symbol, name, sector,
           marketCap: num(m.marketCapitalization) != null ? m.marketCapitalization * 1e6 : null,
@@ -47,12 +57,29 @@ export async function GET(request) {
           dividendYield: num(m.dividendYieldIndicatedAnnual),
           return6m: num(m['26WeekPriceReturnDaily']),
           return1y: num(m['52WeekPriceReturnDaily']),
-          high52: num(m['52WeekHigh']),
-          low52: num(m['52WeekLow']),
+          high52,
+          low52,
+          // Price and momentum, for swing and short-term screens
+          price,
+          changePct: num(q.dp),
+          fromHigh: price && high52 ? ((price - high52) / high52) * 100 : null,
+          fromLow: price && low52 ? ((price - low52) / low52) * 100 : null,
+          return5d: num(m['5DayPriceReturnDaily']),
+          return13w: num(m['13WeekPriceReturnDaily']),
+          vsSpx4w: num(m['priceRelativeToS&P5004Week']),
+          vsSpx13w: num(m['priceRelativeToS&P50013Week']),
+          vsSpx26w: num(m['priceRelativeToS&P50026Week']),
+          volumeRatio: num(m['10DayAverageTradingVolume']) && num(m['3MonthAverageTradingVolume'])
+            ? m['10DayAverageTradingVolume'] / m['3MonthAverageTradingVolume'] : null,
+          // Growth details, for medium-term screens
+          epsGrowth5y: num(m.epsGrowth5Y),
+          revenueGrowthQ: num(m.revenueGrowthQuarterlyYoy),
+          epsGrowthQ: num(m.epsGrowthQuarterlyYoy),
+          dividendGrowth5y: num(m.dividendGrowthRate5Y),
         });
       });
     }
-    return ok({ set, sets: SET_COUNT, stocks, at: Date.now() }, { maxAge: 12 * 3600, swr: 24 * 3600 });
+    return ok({ set, sets: SET_COUNT, stocks, at: Date.now() }, { maxAge: 6 * 3600, swr: 24 * 3600 });
   } catch (err) {
     return fail(err);
   }

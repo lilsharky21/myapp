@@ -889,15 +889,48 @@ await test('Quick score and screens pick the right stocks', async () => {
   assert.deepEqual(runScreen(stocks, { preset: 'top', maxPe: 15 }).map((s) => s.symbol), ['CHEAP']);
 });
 
-await test('/api/screen returns one set of the stock list, cached for 12 hours', async () => {
+await test('Swing score and swing screens: trend, strength, pullbacks, breakouts', async () => {
+  const { swingScore, runScreen, PRESETS, HORIZONS } = await import('../js/screen.js');
+  const strong = { return6m: 35, vsSpx13w: 12, fromHigh: -2, volumeRatio: 1.5 };
+  const weak = { return6m: -20, vsSpx13w: -15, fromHigh: -40, volumeRatio: 0.8 };
+  assert.ok(swingScore(strong) >= 75, `strong ${swingScore(strong)}`);
+  assert.ok(swingScore(weak) <= 25, `weak ${swingScore(weak)}`);
+  assert.equal(swingScore({}), null);
+  // Every time frame has screens, and every screen belongs to a time frame
+  for (const [key] of HORIZONS) assert.ok(PRESETS.some((p) => p.group === key), key);
+  const base = { pe: 25, ps: 6, revenueGrowth: 12, epsGrowth: 15, revenueGrowth5y: 10, grossMargin: 55, operatingMargin: 25, netMargin: 18, roe: 25, debtToEquity: 0.5, currentRatio: 1.5, return1y: 20, sector: 'Tech' };
+  const stocks = [
+    { ...base, symbol: 'DIP', return6m: 30, return5d: -4, fromHigh: -8, vsSpx4w: 1, vsSpx13w: 6, return13w: 10, volumeRatio: 1 },
+    { ...base, symbol: 'HIGH', return6m: 20, return5d: 3, fromHigh: -1, vsSpx4w: 5, vsSpx13w: 8, return13w: 12, volumeRatio: 1.6 },
+    { ...base, symbol: 'DOWN', return6m: -30, return5d: 4, fromHigh: -45, vsSpx4w: -2, vsSpx13w: -20, return13w: -25, volumeRatio: 0.9 },
+  ];
+  assert.deepEqual(runScreen(stocks, { preset: 'pullback' }).map((s) => s.symbol), ['DIP']);
+  assert.deepEqual(runScreen(stocks, { preset: 'breakout' }).map((s) => s.symbol), ['HIGH']);
+  assert.deepEqual(runScreen(stocks, { preset: 'bounce' }).map((s) => s.symbol), ['DOWN']);
+  assert.deepEqual(runScreen(stocks, { preset: 'volume' }).map((s) => s.symbol), ['HIGH']);
+  assert.equal(runScreen(stocks, { preset: 'best' })[0].symbol, 'HIGH'); // best business + trend mix
+  // The chart check reads real indicators
+  const pullback = PRESETS.find((p) => p.key === 'pullback');
+  const tech = (rsi, above200) => ({ rsi: { value: rsi }, averages: [{}, { above: true }, { above: above200 }] });
+  assert.equal(pullback.confirm(tech(45, true))[0], true);
+  assert.equal(pullback.confirm(tech(70, true))[0], false);
+  assert.equal(pullback.confirm(tech(45, false))[0], false);
+});
+
+await test('/api/screen returns one set of the stock list with business and price numbers', async () => {
   const { UNIVERSE } = await import('../js/universe.js');
+  assert.ok(UNIVERSE.length >= 190);
+  assert.equal(new Set(UNIVERSE.map((u) => u[0])).size, UNIVERSE.length); // no duplicates
   const res = await call('screen', 'set=0');
   assert.equal(res.status, 200);
-  assert.equal(res.body.sets, Math.ceil(UNIVERSE.length / 23));
-  assert.equal(res.body.stocks.length, 23);
-  assert.equal(res.body.stocks[0].symbol, UNIVERSE[0][0]);
-  assert.equal(res.body.stocks[0].pe, 30.1);
-  assert.match(res.cache, /s-maxage=43200/);
+  assert.equal(res.body.sets, Math.ceil(UNIVERSE.length / 25));
+  assert.equal(res.body.stocks.length, 25);
+  const first = res.body.stocks[0];
+  assert.equal(first.symbol, UNIVERSE[0][0]);
+  assert.equal(first.pe, 30.1);
+  assert.equal(first.price, 182.5);
+  close(first.fromHigh, ((182.5 - 200) / 200) * 100);
+  assert.match(res.cache, /s-maxage=21600/);
   assert.equal((await call('screen', 'set=99')).status, 400);
 });
 

@@ -18,7 +18,7 @@ import { macSetupCommand } from './mac-setup.js';
 import { pullJournal, pushJournal } from './sync.js';
 import { attachSearch } from './search.js';
 import { loadMarket, loadRates, todayHTML } from './today.js';
-import { loadScreen, discoverHTML, forgetScreen } from './screen.js';
+import { loadScreen, discoverHTML, forgetScreen, checkCharts, PRESETS } from './screen.js';
 import { recordHTML } from './record.js';
 import { benchReturn } from './tabs/journal.js';
 import { installTipHTML, dismissInstallTip, registerServiceWorker } from './install.js';
@@ -849,7 +849,7 @@ window.addEventListener('popstate', (event) => {
 function openDiscover() {
   stopCompare();
   state.listScroll = window.scrollY;
-  state.discover ??= { preset: 'top', sector: '', maxPe: null, stocks: null, loaded: 0, total: 0, scroll: 0 };
+  state.discover ??= { preset: 'best', sector: '', maxPe: null, stocks: null, loaded: 0, total: 0, scroll: 0, charts: {} };
   withTransition(() => {
     $('#list-view').hidden = true;
     $('#discover-view').hidden = false;
@@ -924,11 +924,28 @@ $('#discover-view').addEventListener('click', (event) => {
   if (event.target.closest('[data-action="refresh-screen"]')) {
     forgetScreen();
     d.loading?.abort();
-    Object.assign(d, { stocks: null, loaded: 0, total: 0, error: null, demo: false });
+    Object.assign(d, { stocks: null, loaded: 0, total: 0, error: null, demo: false, charts: {} });
     renderDiscover();
     return startScreen();
   }
   if (event.target.closest('[data-action="show-all"]')) { d.showAll = true; return renderDiscover(); }
+  const horizon = event.target.closest('[data-horizon]');
+  if (horizon) {
+    d.preset = PRESETS.find((p) => p.group === horizon.dataset.horizon).key;
+    d.showAll = false;
+    return renderDiscover();
+  }
+  const chartsBtn = event.target.closest('[data-action="check-charts"]');
+  if (chartsBtn) {
+    const tickers = chartsBtn.dataset.tickers.split(',').filter(Boolean);
+    for (const t of tickers) d.charts[t] = 'loading';
+    renderDiscover();
+    checkCharts(tickers, (t, tech) => {
+      d.charts[t] = tech;
+      if (state.discover === d && !state.openStockId) renderDiscover();
+    });
+    return;
+  }
   const chip = event.target.closest('[data-preset]');
   if (chip) { d.preset = chip.dataset.preset; d.showAll = false; return renderDiscover(); }
   const row = event.target.closest('tr[data-ticker]');

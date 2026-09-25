@@ -1,6 +1,7 @@
 // ==========================================================================
 // universe.js: the stocks the Discover screener looks through.
-// About 90 of the best-known US companies, covering all 11 sectors.
+// About 200 of the best-known US companies, covering all 11 sectors:
+// long-time leaders, fast growers and popular trading names.
 // Shared by the screener page and the backend (api/_routes/screen.js).
 // ==========================================================================
 
@@ -45,4 +46,26 @@ export const UNIVERSE = [
   // Real estate
   ['PLD', 'Prologis', 'Real estate'], ['AMT', 'American Tower', 'Real estate'], ['EQIX', 'Equinix', 'Real estate'],
   ['O', 'Realty Income', 'Real estate'], ['SPG', 'Simon Property', 'Real estate'],
+  // More Tech
+  ['INTU', 'Intuit', 'Tech'], ['ADSK', 'Autodesk', 'Tech'], ['CDNS', 'Cadence Design', 'Tech'], ['SNPS', 'Synopsys', 'Tech'], ['KLAC', 'KLA', 'Tech'], ['LRCX', 'Lam Research', 'Tech'], ['AMAT', 'Applied Materials', 'Tech'], ['MRVL', 'Marvell', 'Tech'], ['ARM', 'Arm Holdings', 'Tech'], ['DELL', 'Dell', 'Tech'], ['IBM', 'IBM', 'Tech'], ['CSCO', 'Cisco', 'Tech'], ['ACN', 'Accenture', 'Tech'], ['WDAY', 'Workday', 'Tech'], ['SNOW', 'Snowflake', 'Tech'], ['NET', 'Cloudflare', 'Tech'], ['DDOG', 'Datadog', 'Tech'], ['ZS', 'Zscaler', 'Tech'], ['TTD', 'The Trade Desk', 'Tech'], ['APP', 'AppLovin', 'Tech'], ['SMCI', 'Super Micro Computer', 'Tech'], ['HPQ', 'HP', 'Tech'],
+  // More Communication
+  ['CMCSA', 'Comcast', 'Communication'], ['EA', 'Electronic Arts', 'Communication'], ['TTWO', 'Take-Two', 'Communication'], ['SPOT', 'Spotify', 'Communication'], ['RBLX', 'Roblox', 'Communication'], ['CHTR', 'Charter', 'Communication'],
+  // More Consumer disc.
+  ['ABNB', 'Airbnb', 'Consumer disc.'], ['DASH', 'DoorDash', 'Consumer disc.'], ['TGT', 'Target', 'Consumer disc.'], ['ROST', 'Ross Stores', 'Consumer disc.'], ['LULU', 'Lululemon', 'Consumer disc.'], ['DECK', 'Deckers', 'Consumer disc.'], ['F', 'Ford', 'Consumer disc.'], ['GM', 'General Motors', 'Consumer disc.'], ['RIVN', 'Rivian', 'Consumer disc.'], ['MAR', 'Marriott', 'Consumer disc.'], ['RCL', 'Royal Caribbean', 'Consumer disc.'], ['ORLY', "O'Reilly Automotive", 'Consumer disc.'],
+  // More Staples
+  ['MNST', 'Monster Beverage', 'Staples'], ['KDP', 'Keurig Dr Pepper', 'Staples'], ['HSY', 'Hershey', 'Staples'], ['MO', 'Altria', 'Staples'], ['KHC', 'Kraft Heinz', 'Staples'], ['DG', 'Dollar General', 'Staples'], ['CELH', 'Celsius', 'Staples'], ['ELF', 'e.l.f. Beauty', 'Staples'],
+  // More Financials
+  ['WFC', 'Wells Fargo', 'Financials'], ['C', 'Citigroup', 'Financials'], ['SPGI', 'S&P Global', 'Financials'], ['MCO', "Moody's", 'Financials'], ['ICE', 'Intercontinental Exchange', 'Financials'], ['CME', 'CME Group', 'Financials'], ['PGR', 'Progressive', 'Financials'], ['CB', 'Chubb', 'Financials'], ['COF', 'Capital One', 'Financials'], ['PYPL', 'PayPal', 'Financials'], ['XYZ', 'Block', 'Financials'], ['COIN', 'Coinbase', 'Financials'], ['HOOD', 'Robinhood', 'Financials'], ['SOFI', 'SoFi', 'Financials'],
+  // More Health care
+  ['BMY', 'Bristol-Myers Squibb', 'Health care'], ['GILD', 'Gilead', 'Health care'], ['VRTX', 'Vertex', 'Health care'], ['REGN', 'Regeneron', 'Health care'], ['DXCM', 'Dexcom', 'Health care'], ['ZTS', 'Zoetis', 'Health care'], ['CVS', 'CVS Health', 'Health care'], ['CI', 'Cigna', 'Health care'], ['ELV', 'Elevance Health', 'Health care'], ['MCK', 'McKesson', 'Health care'], ['HCA', 'HCA Healthcare', 'Health care'], ['BSX', 'Boston Scientific', 'Health care'],
+  // More Industrials
+  ['ETN', 'Eaton', 'Industrials'], ['EMR', 'Emerson', 'Industrials'], ['ITW', 'Illinois Tool Works', 'Industrials'], ['MMM', '3M', 'Industrials'], ['WM', 'Waste Management', 'Industrials'], ['FDX', 'FedEx', 'Industrials'], ['CSX', 'CSX', 'Industrials'], ['DAL', 'Delta Air Lines', 'Industrials'], ['NOC', 'Northrop Grumman', 'Industrials'], ['GD', 'General Dynamics', 'Industrials'], ['PH', 'Parker-Hannifin', 'Industrials'], ['AXON', 'Axon', 'Industrials'],
+  // More Energy
+  ['MPC', 'Marathon Petroleum', 'Energy'], ['PSX', 'Phillips 66', 'Energy'], ['VLO', 'Valero', 'Energy'], ['KMI', 'Kinder Morgan', 'Energy'], ['WMB', 'Williams', 'Energy'], ['FSLR', 'First Solar', 'Energy'],
+  // More Materials
+  ['NUE', 'Nucor', 'Materials'], ['ECL', 'Ecolab', 'Materials'], ['VMC', 'Vulcan Materials', 'Materials'], ['DD', 'DuPont', 'Materials'],
+  // More Utilities
+  ['D', 'Dominion Energy', 'Utilities'], ['EXC', 'Exelon', 'Utilities'], ['SRE', 'Sempra', 'Utilities'], ['CEG', 'Constellation Energy', 'Utilities'], ['VST', 'Vistra', 'Utilities'],
+  // More Real estate
+  ['WELL', 'Welltower', 'Real estate'], ['PSA', 'Public Storage', 'Real estate'], ['DLR', 'Digital Realty', 'Real estate'], ['CCI', 'Crown Castle', 'Real estate'], ['VICI', 'VICI Properties', 'Real estate'],
 ];

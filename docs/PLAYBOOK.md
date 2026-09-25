@@ -13,8 +13,14 @@ Discover / search  →  Watchlist  →  Full research  →  Decide & size  →  
 
 ## 1. Find ideas (weekly, ~15 minutes)
 
-- Open **Discover**. Try **Quality at a fair price** and **Fast growers** first.
-  They're the most beginner-friendly screens.
+- Open **Discover**. Pick the time frame you're investing for:
+  - **Best overall** first: good businesses whose price is also rising.
+  - **Long term** (years): *Quality at a fair price* and *Compounders* are the most
+    beginner-friendly.
+  - **Months**: *Growth speeding up* and *Growth at a reasonable price* find companies
+    whose profits are improving.
+  - **Swing** (days to weeks): *Pullback in an uptrend* is the classic. Always tap
+    **Check the charts** and only consider the ✓ ones, keep them small, and set a stop.
 - Also add companies you already understand (things you use or see everywhere).
   Knowing the business is an edge.
 - Open anything interesting. It costs nothing to look. Tap **Add** only if you can
