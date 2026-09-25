@@ -393,6 +393,7 @@ const samples = {
   },
   'finnhub.io/api/v1/stock/peers': ['AAPL', 'MSFT', 'GOOGL'],
   'generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent': { candidates: [{ content: { parts: [{ text: '{"rating":"Buy"}' }] } }] },
+  'generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash': { name: 'models/gemini-2.5-flash' },
   'www.sec.gov/files/company_tickers.json': { 0: { cik_str: 320193, ticker: 'AAPL', title: 'Apple Inc.' }, 1: { cik_str: 1067983, ticker: 'BRK-B', title: 'Berkshire Hathaway' } },
   'data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json': companyFacts,
   'data.sec.gov/submissions/CIK0000320193.json': {
@@ -520,6 +521,33 @@ await test('Passcode lock: blocked without it, allowed with it', async () => {
   const allowed = await call('quote', 'symbol=AAPL', { headers: { 'x-passcode': 'open-sesame' } });
   assert.equal(allowed.status, 200);
   delete process.env.APP_PASSCODE;
+});
+
+await test('/api/status reports each connection', async () => {
+  const res = await call('status', '');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.finnhub.status, 'ok');
+  assert.equal(res.body.twelvedata.status, 'ok');
+  assert.equal(res.body.sec.status, 'ok');
+  assert.equal(res.body.gemini.status, 'ok');
+  assert.equal(res.body.passcode.status, 'optional');
+  assert.equal(res.cache, 'no-store');
+});
+
+await test('/api/status spots missing and refused keys', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, opts) => (String(url).includes('finnhub.io') ? new Response('no', { status: 401 }) : realFetch(url, opts));
+  const saved = process.env.TWELVEDATA_API_KEY;
+  delete process.env.TWELVEDATA_API_KEY;
+  try {
+    const res = await call('status', '');
+    assert.equal(res.body.finnhub.status, 'rejected');
+    assert.equal(res.body.twelvedata.status, 'missing');
+    assert.match(res.body.twelvedata.message, /TWELVEDATA_API_KEY/);
+  } finally {
+    globalThis.fetch = realFetch;
+    process.env.TWELVEDATA_API_KEY = saved;
+  }
 });
 
 // ---------------------------------------------------------------------------

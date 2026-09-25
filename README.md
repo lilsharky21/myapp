@@ -53,14 +53,14 @@ Until live data is connected, the stock pages show clearly labeled **demo number
 | AI on your phone | Google Gemini free tier | `GEMINI_API_KEY` |
 | AI on your Mac | Ollama, running on the Mac itself | None |
 
-## Put it online (Vercel)
+## Put it online (Vercel) and add your keys
 
-1. Sign in at vercel.com with your GitHub account.
-2. **Add New → Project**, pick this repository, and click **Deploy**. No settings to change.
-3. In the project, open **Settings → Environment Variables** and add the names from
-   `.env.example` with your keys. Then go to **Deployments** and redeploy.
-4. Optional: add `APP_PASSCODE` so only you can use the app's data and AI.
-5. Open the link on your iPhone and use Share → **Add to Home Screen**.
+**Step-by-step guide: [docs/SETUP.md](docs/SETUP.md).** It covers how to get each free key
+(Finnhub, Twelve Data, Gemini), where to paste them in Vercel, and how to check they work.
+
+In short: import this repo on vercel.com, add the keys under Settings → Environment
+Variables, redeploy, then open **Data connections** at the bottom of the watchlist to
+see a ✓ for each service.
 
 ## Local AI on your Mac (free, private)
 

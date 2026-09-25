@@ -1,0 +1,49 @@
+// GET /api/status
+// Checks every data connection for real: one tiny request per service.
+// The app's "Data connections" card uses this to show ✓ or how to fix it.
+
+import { guard, fail, fetchJSON } from '../lib/http.js';
+
+export async function GET(request) {
+  try {
+    guard(request);
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    const [finnhub, twelvedata, sec, gemini] = await Promise.all([
+      check('FINNHUB_API_KEY', (key) =>
+        fetchJSON(`https://finnhub.io/api/v1/quote?symbol=AAPL&token=${encodeURIComponent(key)}`)),
+      check('TWELVEDATA_API_KEY', async (key) => {
+        // Twelve Data reports a bad key inside a normal-looking answer
+        const data = await fetchJSON(`https://api.twelvedata.com/time_series?symbol=AAPL&interval=1day&outputsize=1&apikey=${encodeURIComponent(key)}`);
+        if (data.status !== 'ok') throw Object.assign(new Error(data.message || 'Twelve Data error'), { status: data.code });
+      }),
+      check('SEC_USER_AGENT', (agent) =>
+        fetchJSON('https://www.sec.gov/files/company_tickers.json', { headers: { 'User-Agent': agent } })),
+      check('GEMINI_API_KEY', (key) =>
+        fetchJSON(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}`, { headers: { 'x-goog-api-key': key } }), { badRequestMeansRejected: true }),
+    ]);
+    return Response.json({
+      finnhub,
+      twelvedata,
+      sec,
+      gemini,
+      passcode: process.env.APP_PASSCODE ? { status: 'ok' } : { status: 'optional', message: 'No passcode set. Anyone with your link could use your free limits.' },
+    }, { headers: { 'Cache-Control': 'no-store' } });
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+async function check(envName, run, { badRequestMeansRejected = false } = {}) {
+  const value = process.env[envName];
+  if (!value) return { status: 'missing', message: `${envName} isn't set in Vercel yet.` };
+  try {
+    await run(value);
+    return { status: 'ok' };
+  } catch (err) {
+    if (err.status === 401 || err.status === 403 || (badRequestMeansRejected && err.status === 400)) {
+      return { status: 'rejected', message: 'The key was refused. Copy it again carefully (no spaces) and redeploy.' };
+    }
+    if (err.status === 429) return { status: 'error', message: 'The free limit was hit just now. Try again in a minute.' };
+    return { status: 'error', message: `Couldn't reach the service (${err.message}).` };
+  }
+}

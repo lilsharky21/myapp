@@ -1529,6 +1529,21 @@ dl.inputs dd { margin: 0; font-weight: 600; text-align: right; font-variant-nume
 .bl-row { display: flex; align-items: center; gap: 4px; }
 .bl-row .pill { margin-left: auto; }
 
+/* ---------- Data connections card ---------- */
+
+.connections { margin: 8px 0 24px; padding: 12px 16px; border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.connections summary { font-size: 15px; font-weight: 600; cursor: pointer; }
+.conn-body { margin-top: 10px; }
+.conn-list { margin: 0 0 8px; padding: 0; list-style: none; }
+.conn { display: flex; gap: 12px; padding: 9px 0; }
+.conn + .conn { border-top: 1px solid var(--hairline); }
+.conn-icon { flex: none; width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; font-size: 13px; font-weight: 700; background: var(--seg-bg); color: var(--text-2); }
+.conn.ok .conn-icon { background: var(--up-soft); color: var(--up); }
+.conn.rejected .conn-icon, .conn.error .conn-icon { background: var(--down-soft); color: var(--down); }
+.conn-name { margin: 0; font-size: 15px; font-weight: 600; }
+.conn-name .muted { font-weight: 400; font-size: 13px; }
+.conn p.muted-line { margin-top: 2px; }
+
 /* ---------- Bigger screens ---------- */
 
 @media (min-width: 700px) {

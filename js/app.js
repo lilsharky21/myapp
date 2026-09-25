@@ -6,7 +6,7 @@
 
 import { loadIdeas, saveIdeas, createIdea, parsePrice, CONVICTION_WORDS } from './journal.js';
 import { openStockPage, closeStockPage, refreshIdea } from './stock.js';
-import { getQuote } from './api.js';
+import { getQuote, passcodeHeaders } from './api.js';
 import * as f from './format.js';
 
 // Shortcut: $('#list') finds the element with id="list"
@@ -416,6 +416,51 @@ window.addEventListener('popstate', (event) => {
   const id = event.state?.stock;
   if (id && id !== state.openStockId) openStock(state.ideas.find((i) => i.id === id), { remember: false });
   else if (!id) closeStock();
+});
+
+// ---------- Data connections: is each key working? ----------
+
+const SERVICES = [
+  ['finnhub', 'Finnhub', 'Prices, stats, analysts, earnings, insiders, news'],
+  ['twelvedata', 'Twelve Data', 'Charts and technicals'],
+  ['sec', 'SEC EDGAR', 'Financial statements and filings'],
+  ['gemini', 'Gemini', 'AI research on your phone'],
+  ['passcode', 'Passcode', 'Keeps strangers out'],
+];
+
+async function checkConnections() {
+  const body = $('#conn-body');
+  body.innerHTML = '<p class="muted-line"><span class="spinner"></span>Checking each connection…</p>';
+  let res;
+  try {
+    res = await fetch('/api/status', { headers: { Accept: 'application/json', ...passcodeHeaders() } });
+  } catch {
+    res = null;
+  }
+  if (!res || !(res.headers.get('content-type') || '').includes('json')) {
+    body.innerHTML = '<p class="muted-line">Available once the app is on Vercel. Setup steps: docs/SETUP.md in your GitHub repo.</p>';
+    return;
+  }
+  const status = await res.json().catch(() => ({}));
+  if (status.error === 'locked') {
+    body.innerHTML = '<p class="muted-line">Open any stock and enter your passcode first, then check again.</p>';
+    return;
+  }
+  const icon = { ok: '✓', missing: '○', optional: '○', rejected: '✗', error: '!' };
+  body.innerHTML = `<ul class="conn-list">${SERVICES.map(([key, name, what]) => {
+    const s = status[key] ?? { status: 'error', message: 'No answer.' };
+    return `<li class="conn ${s.status}"><span class="conn-icon">${icon[s.status] ?? '!'}</span>
+      <div><p class="conn-name">${name} <span class="muted">· ${what}</span></p>
+      ${s.message ? `<p class="muted-line">${esc(s.message)}</p>` : ''}</div></li>`;
+  }).join('')}</ul>
+  <button type="button" class="text-btn small" id="conn-again">Check again</button>`;
+}
+
+$('#connections').addEventListener('toggle', (event) => {
+  if (event.target.open) checkConnections();
+});
+$('#conn-body').addEventListener('click', (event) => {
+  if (event.target.id === 'conn-again') checkConnections();
 });
 
 // ---------- The top bar that fades in when you scroll ----------
