@@ -3,6 +3,8 @@
 // the SEC's free whole-market data (one request returns one number for every
 // company), and keep the ~120 best businesses and fastest growers. Discover
 // then checks price, valuation and momentum for just those finalists.
+// The finalists: the strongest businesses, the fastest growers, early-stage
+// "gems" whose growth is speeding up, and R&D-heavy tech companies.
 //
 // Covers companies that file US annual reports (10-K). Foreign companies that
 // file 20-F reports and OTC penny stocks aren't included.
@@ -12,9 +14,10 @@ import { secFrame, listedCompanies } from '../../lib/sec.js';
 import { scale } from '../../js/ratings.js';
 
 const MIN_REVENUE = 250e6;   // big enough to be a real, tradeable business
-const TOP_BUSINESSES = 90;
-const TOP_GROWERS = 30;
-const MAX = 120;
+const GEM_MIN_REVENUE = 100e6; // early-stage companies can be smaller
+const GEM_MAX_REVENUE = 3e9;
+const POOLS = { businesses: 60, growers: 25, gems: 30, tech: 25 };
+const MAX = 140;
 
 export async function GET(request) {
   try {
@@ -40,26 +43,39 @@ export async function scanMarket({ now = new Date() } = {}) {
     frames = await loadFrames(year);
   }
 
-  const companies = [];
+  const all = [];
   for (const [cik, company] of listed) {
     const c = measure(cik, frames);
-    if (!c || c.revenue < MIN_REVENUE) continue;
-    companies.push({ ...company, ...c, businessScore: businessScore(c) });
+    if (!c || c.revenue < GEM_MIN_REVENUE) continue;
+    all.push({ ...company, ...c, businessScore: businessScore(c), earlyScore: earlyScore(c), isTechLike: c.rdIntensity >= 8 });
   }
+  const companies = all.filter((c) => c.revenue >= MIN_REVENUE);
   if (companies.length < 50) throw new Error('The SEC data had an unexpected format');
 
-  const byScore = [...companies].filter((c) => c.businessScore != null).sort((a, b) => b.businessScore - a.businessScore);
-  const picked = new Map(byScore.slice(0, TOP_BUSINESSES).map((c) => [c.symbol, c]));
-  // Plus the fastest-growing sizable companies that make real money or cash
-  const growers = companies
-    .filter((c) => c.revenue >= 2 * MIN_REVENUE && c.revenueGrowthSec != null && (c.fcfMargin > 0 || c.netMarginSec > 0))
-    .sort((a, b) => b.revenueGrowthSec - a.revenueGrowthSec);
-  for (const c of growers) {
-    if (picked.size >= TOP_BUSINESSES + TOP_GROWERS || picked.size >= MAX) break;
-    if (!picked.has(c.symbol)) picked.set(c.symbol, c);
-  }
-  const candidates = [...picked.values()].sort((a, b) => (b.businessScore ?? 0) - (a.businessScore ?? 0));
-  return { year, listed: listed.size, scanned: companies.length, candidates, at: Date.now() };
+  const picked = new Map();
+  const take = (list, n) => {
+    let added = 0;
+    for (const c of list) {
+      if (added >= n || picked.size >= MAX) break;
+      if (!picked.has(c.symbol)) { picked.set(c.symbol, c); added++; }
+    }
+  };
+  const desc = (key) => (a, b) => (b[key] ?? -Infinity) - (a[key] ?? -Infinity);
+  // 1. The strongest businesses
+  take(companies.filter((c) => c.businessScore != null).sort(desc('businessScore')), POOLS.businesses);
+  // 2. The fastest-growing sizable companies that make real money or cash
+  take(companies.filter((c) => c.revenue >= 2 * MIN_REVENUE && c.revenueGrowthSec != null && (c.fcfMargin > 0 || c.netMarginSec > 0))
+    .sort(desc('revenueGrowthSec')), POOLS.growers);
+  // 3. Early gems: smaller, fast-growing, and getting better (growth speeding up,
+  //    just turned profitable, or margins improving)
+  take(all.filter((c) => c.revenue <= GEM_MAX_REVENUE && c.revenueGrowthSec >= 20
+    && (c.acceleration >= 3 || c.turnedProfitable || c.marginChange >= 2)).sort(desc('earlyScore')), POOLS.gems);
+  // 4. Tech and innovation: companies that reinvest heavily in R&D and are growing
+  take(all.filter((c) => c.isTechLike && c.revenueGrowthSec >= 10)
+    .sort((a, b) => ((b.earlyScore ?? 0) + (b.businessScore ?? 0)) - ((a.earlyScore ?? 0) + (a.businessScore ?? 0))), POOLS.tech);
+
+  const candidates = [...picked.values()].sort((a, b) => Math.max(b.businessScore ?? 0, b.earlyScore ?? 0) - Math.max(a.businessScore ?? 0, a.earlyScore ?? 0));
+  return { year, listed: listed.size, scanned: all.length, candidates, at: Date.now() };
 }
 
 // The numbers Discover needs, for three years, for every company at once
@@ -73,6 +89,7 @@ async function loadFrames(year) {
     netIncome: duration('NetIncomeLoss'),
     cashFlow: duration('NetCashProvidedByUsedInOperatingActivities'),
     capex: duration('PaymentsToAcquirePropertyPlantAndEquipment'),
+    rd: duration('ResearchAndDevelopmentExpense'),
     assets: instant('Assets'),
     liabilities: instant('Liabilities'),
     equity: instant('StockholdersEquity'),
@@ -110,10 +127,22 @@ export function measure(cik, f) {
     const liabilities = f.liabilities[i].get(cik);
     const equity = f.equity[i].get(cik);
     const pct = (a, b) => (a != null && b ? (a / b) * 100 : null);
+    const growth = ((revenue - prior) / prior) * 100;
+    const older = f.revenue[i + 2]?.get(cik);
+    const priorGrowth = older > 0 ? ((prior - older) / older) * 100 : null;
+    const priorIncome = f.netIncome[i + 1]?.get(cik);
+    const margin = pct(netIncome, revenue);
+    const priorMargin = pct(priorIncome, prior);
+    const rd = f.rd?.[i]?.get(cik);
     return {
       fiscalYearIndex: i,
       revenue,
-      revenueGrowthSec: ((revenue - prior) / prior) * 100,
+      revenueGrowthSec: growth,
+      priorGrowth,
+      acceleration: priorGrowth != null ? growth - priorGrowth : null,
+      turnedProfitable: priorIncome != null && netIncome != null && priorIncome < 0 && netIncome > 0,
+      marginChange: margin != null && priorMargin != null ? margin - priorMargin : null,
+      rdIntensity: rd != null && rd > 0 ? pct(rd, revenue) : null,
       netMarginSec: pct(netIncome, revenue),
       fcfMargin: cash != null ? pct(cash - capex, revenue) : null,
       roeSec: equity > 0 ? pct(netIncome, equity) : null,
@@ -121,6 +150,22 @@ export function measure(cik, f) {
     };
   }
   return null;
+}
+
+// 0-100: how much it looks like a company in the early part of a big run:
+// fast growth that's speeding up, profits improving, reinvesting, still small
+export function earlyScore(c) {
+  const improving = c.turnedProfitable ? 95 : scale(c.marginChange, [[-10, 10], [-2, 30], [0, 45], [3, 70], [8, 90], [15, 97]]);
+  const parts = [
+    [scale(c.revenueGrowthSec, [[0, 5], [10, 30], [20, 55], [35, 80], [60, 95], [100, 99]]), 30],
+    [scale(c.acceleration, [[-20, 5], [-5, 30], [0, 45], [5, 70], [15, 90], [30, 98]]), 20],
+    [improving, 20],
+    [scale(c.rdIntensity, [[0, 30], [5, 50], [10, 70], [20, 90], [35, 95]]) ?? 35, 10],
+    [scale(c.revenue, [[1e8, 95], [5e8, 90], [2e9, 70], [1e10, 40], [5e10, 15], [2e11, 5]]), 20],
+  ].filter(([v]) => v != null);
+  const weight = parts.reduce((a, [, w]) => a + w, 0);
+  if (weight < 60 || c.revenueGrowthSec == null) return null;
+  return Math.round(parts.reduce((a, [v, w]) => a + v * w, 0) / weight);
 }
 
 // 0-100: how strong the business looks from its annual report

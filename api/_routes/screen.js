@@ -7,7 +7,7 @@
 // hours, so screening stays inside the free limit (60 requests a minute).
 
 import { ok, fail, guard, HOUR, MINUTE, DAY } from '../../lib/http.js';
-import { finnhub } from '../../lib/finnhub.js';
+import { finnhub, isoDay } from '../../lib/finnhub.js';
 import { UNIVERSE } from '../../js/universe.js';
 export const SET_SIZE = 25;
 export const MAX_SYMBOLS = 15;
@@ -37,6 +37,11 @@ export async function GET(request) {
       list = UNIVERSE.slice(set * SET_SIZE, (set + 1) * SET_SIZE);
     }
     const stocks = [];
+    // Who reports earnings in the next 3 weeks (one call for the whole market, shared by every batch)
+    const today = new Date();
+    const upcoming = await finnhub('/calendar/earnings', { from: isoDay(today), to: isoDay(new Date(today.getTime() + 21 * DAY)) }, 6 * HOUR)
+      .then((r) => new Map((r?.earningsCalendar ?? []).map((e) => [e.symbol, e.date])))
+      .catch(() => new Map());
     // 5 stocks (10 calls) at a time: Finnhub also limits bursts (30 a second)
     for (let i = 0; i < list.length; i += 5) {
       const slice = list.slice(i, i + 5);
@@ -96,6 +101,7 @@ export async function GET(request) {
           revenueGrowthQ: num(m.revenueGrowthQuarterlyYoy),
           epsGrowthQ: num(m.epsGrowthQuarterlyYoy),
           dividendGrowth5y: num(m.dividendGrowthRate5Y),
+          nextEarnings: upcoming.get(symbol) ?? null,
         });
       });
     }

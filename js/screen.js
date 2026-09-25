@@ -100,12 +100,37 @@ function combined(s) {
 // P/E divided by long-term profit growth. Under 1.5 is "growth at a reasonable price"
 const peg = (s) => (s.pe > 0 && s.epsGrowth5y > 0 ? s.pe / s.epsGrowth5y : null);
 
+// Tech: by industry, or a company that reinvests 8%+ of sales in R&D (but not drug makers)
+const TECH_INDUSTRY = /tech|semiconductor|software|internet|electronic|communications equipment|computer|hardware|it services/i;
+const NOT_TECH = /biotech|pharma|health|life science|medical|drug/i;
+export function isTech(s) {
+  if (s.sector && NOT_TECH.test(s.sector)) return false;
+  if (s.sector && TECH_INDUSTRY.test(s.sector)) return true;
+  return s.rdIntensity >= 8 || (s.isTechLike === true && !s.sector);
+}
+
+// Days until the next earnings report (null if none in the next 3 weeks)
+export function daysToEarnings(s, now = Date.now()) {
+  if (!s.nextEarnings) return null;
+  const d = Math.round((Date.parse(s.nextEarnings + 'T12:00:00Z') - now) / 86_400_000);
+  return d >= 0 ? d : null;
+}
+
+// Suggested swing stop and target from the chart: 1.5× the average daily range
+// below the price, and twice that distance above it (2:1 reward to risk)
+export function stopTarget(tech) {
+  const atr = tech?.atr?.value;
+  if (!atr || !tech.last) return null;
+  return { stop: tech.last - 1.5 * atr, target: tech.last + 3 * atr, riskPct: ((1.5 * atr) / tech.last) * 100 };
+}
+
 // ---------------------------------------------------------------------------
 // Ready-made screens, by time frame
 // ---------------------------------------------------------------------------
 
 export const HORIZONS = [
-  ['best', 'Best overall', 'Strong businesses whose price trend is also working.'],
+  ['best', 'Best', 'Best overall: strong businesses whose price trend is also working.'],
+  ['early', 'Early', 'Early finds: smaller companies whose growth is speeding up or that just turned the corner. Bigger upside, bigger swings: keep positions small.'],
   ['long', 'Long term', 'Years. Buy good businesses at sensible prices and hold them.'],
   ['medium', 'Months', 'Companies whose profits are improving, which tends to show up in the price over months.'],
   ['swing', 'Swing', 'Days to weeks. Trading price moves. Faster, riskier, and needs a stop every time.'],
@@ -132,6 +157,39 @@ export const PRESETS = [
     about: 'Very profitable companies that are beating the S&P 500 over the last 3 months and trading near their highs.',
     check: 'These are often popular, so check the P/E against peers (Valuation tab) before buying.',
     test: (s) => s.q.quality >= 65 && s.vsSpx13w > 0 && s.fromHigh >= -15, sort: by((s) => s.q.quality + (s.swing ?? 0)),
+  },
+  // ----- Early finds -----
+  {
+    key: 'gems', group: 'early', name: 'Hidden gems',
+    about: 'Companies under $10B growing sales 20%+ a year, where growth is speeding up or profits are improving. The kind of stock that’s often found before it’s famous.',
+    check: 'Read the AI note and the latest earnings. Small companies can be one bad quarter from a big drop, so size the position carefully.',
+    test: (s) => s.marketCap != null && s.marketCap < 10e9 && s.revenueGrowth >= 20 && s.earlyScore >= 55, sort: by((s) => s.earlyScore),
+  },
+  {
+    key: 'turned', group: 'early', name: 'Just turned profitable',
+    about: 'Lost money the year before, made money last year. Turning profitable often changes how the market values a company.',
+    check: 'Check it wasn’t a one-off (like selling a business). The Financials tab shows if operating profit improved too.',
+    test: (s) => s.turnedProfitable, sort: by((s) => s.revenueGrowth),
+  },
+  {
+    key: 'speeding', group: 'early', name: 'Growth speeding up',
+    about: 'Sales grew faster last year than the year before (from the annual reports). Speeding-up growth is one of the earliest signs of a big run.',
+    check: 'Check the latest quarter (Earnings tab): is it still speeding up?',
+    test: (s) => s.acceleration >= 5 && s.revenueGrowth >= 15, sort: by((s) => s.acceleration),
+  },
+  {
+    key: 'money-in', group: 'early', name: 'Money moving in early',
+    about: 'Smaller companies beating the S&P 500 over 3 months, with volume above normal and the price near its high. Often a sign big investors are starting to buy.',
+    check: 'Find out why in the News tab. Buying after a big jump is risky; a calm day or small dip is a better entry.',
+    test: (s) => s.marketCap != null && s.marketCap < 20e9 && s.vsSpx13w >= 5 && s.volumeRatio >= 1.2 && s.fromHigh >= -15, sort: by((s) => s.vsSpx13w),
+    confirm: (t) => [t.averages[1].above && t.averages[2].above && t.rsi.value < 78,
+      !t.averages[2].above ? 'Below its 200-day average' : !t.averages[1].above ? 'Slipped under its 50-day' : t.rsi.value >= 78 ? `RSI ${t.rsi.value.toFixed(0)}: overbought` : 'Trend confirmed'],
+  },
+  {
+    key: 'rising-tech', group: 'early', name: 'Rising tech',
+    about: 'Tech companies under $50B growing 20%+ a year. Where tomorrow’s big names often come from.',
+    check: 'Is the growth profitable, or paid for by losses? Check the cash-flow margin in the Financials tab.',
+    test: (s) => isTech(s) && s.revenueGrowth >= 20 && s.marketCap != null && s.marketCap < 50e9, sort: by((s) => (s.earlyScore ?? 0) + (s.q.overall ?? 0)),
   },
   // ----- Long term -----
   {
@@ -264,14 +322,19 @@ export const SIZES = [
   ['small', 'Small (under $2B)', (cap) => cap < 2e9],
 ];
 
-export function runScreen(stocks, { preset = 'best', sector = '', maxPe = null, size = '' } = {}) {
+export function runScreen(stocks, { preset = 'best', sector = '', maxPe = null, size = '', techOnly = false } = {}) {
   const p = PRESETS.find((x) => x.key === preset) ?? PRESETS[0];
   const sizeTest = SIZES.find(([key]) => key === size)?.[2];
-  return scored(stocks)
+  const list = scored(stocks)
     .filter((s) => (!sector || s.sector === sector) && (maxPe == null || (s.pe > 0 && s.pe <= maxPe)))
     .filter((s) => !sizeTest || (s.marketCap != null && sizeTest(s.marketCap)))
+    .filter((s) => !techOnly || isTech(s))
     .filter((s) => { try { return p.test(s); } catch { return false; } })
     .sort(p.sort);
+  if (p.group !== 'swing') return list;
+  // Swing trades: an earnings report within a week can gap the price either way, so those go last
+  const soon = (s) => { const d = daysToEarnings(s); return d != null && d <= 7; };
+  return [...list.filter((s) => !soon(s)), ...list.filter(soon)];
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +343,7 @@ export function runScreen(stocks, { preset = 'best', sector = '', maxPe = null, 
 
 const REASON_ORDER = {
   best: ['growth', 'margin', 'strength', 'high', 'fcf', 'cheap', 'roe'],
+  early: ['speeding', 'turned', 'growth', 'marginUp', 'rd', 'strength', 'size'],
   long: ['growth', 'margin', 'fcf', 'roe', 'cheap', 'debt', 'dividend'],
   medium: ['accel', 'eps', 'peg', 'growth', 'strength6', 'margin'],
   swing: ['dip', 'high', 'strength', 'volume', 'bounce', 'growth'],
@@ -296,16 +360,25 @@ export function reasonsFor(s, group = 'best') {
     peg: peg(s) != null && peg(s) <= 1.2 && `PEG ${peg(s).toFixed(1)}`,
     debt: s.debtToEquity != null && s.debtToEquity >= 0 && s.debtToEquity < 0.3 && 'Almost no debt',
     dividend: s.dividendYield >= 3 && `${s.dividendYield.toFixed(1)}% dividend`,
-    strength: s.vsSpx13w >= 5 && `Beating the S&P by ${r0(s.vsSpx13w)} pts (3 mo)`,
-    strength6: s.vsSpx26w >= 10 && `Beating the S&P by ${r0(s.vsSpx26w)} pts (6 mo)`,
+    strength: s.vsSpx13w >= 5 && `+${r0(s.vsSpx13w)} pts vs S&P (3 mo)`,
+    strength6: s.vsSpx26w >= 10 && `+${r0(s.vsSpx26w)} pts vs S&P (6 mo)`,
     high: s.fromHigh >= -3 && 'At its 52-week high',
     dip: s.return5d <= -2 && (s.return26w ?? s.return6m) >= 10 && `Dipped ${r0(Math.abs(s.return5d))}% this week`,
     volume: s.volumeRatio >= 1.5 && `Volume ${s.volumeRatio.toFixed(1)}× usual`,
     bounce: s.return5d >= 3 && s.return13w <= -15 && `Up ${r0(s.return5d)}% this week`,
     accel: s.revenueGrowthQ != null && s.revenueGrowth != null && s.revenueGrowthQ >= s.revenueGrowth + 5 && `Sales growth speeding up (+${r0(s.revenueGrowthQ)}%)`,
     eps: s.epsGrowthQ >= 25 && `Profits +${r0(s.epsGrowthQ)}% last quarter`,
+    speeding: s.acceleration >= 5 && `Growth speeding up (+${r0(s.acceleration)} pts)`,
+    turned: s.turnedProfitable && 'Just turned profitable',
+    marginUp: s.marginChange >= 3 && `Margins up ${r0(s.marginChange)} pts`,
+    rd: s.rdIntensity >= 10 && `Reinvests ${r0(s.rdIntensity)}% in R&D`,
+    size: s.marketCap != null && s.marketCap < 10e9 && `${f.money(s.marketCap)} company`,
   };
-  return (REASON_ORDER[group] ?? REASON_ORDER.best).map((k) => facts[k]).filter(Boolean).slice(0, 3);
+  const list = (REASON_ORDER[group] ?? REASON_ORDER.best).map((k) => facts[k]).filter(Boolean).slice(0, 3);
+  // Always flag an earnings report coming up soon
+  const d = daysToEarnings(s);
+  if (d != null && d <= 10) list.unshift(`⚠ Earnings ${d === 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`}`);
+  return list;
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +462,12 @@ function mergeSec(stock, c) {
     roe: stock.roe ?? c.roeSec,
     fcfMargin: c.fcfMargin,
     businessScore: c.businessScore,
+    earlyScore: c.earlyScore,
+    acceleration: c.acceleration,
+    turnedProfitable: c.turnedProfitable,
+    marginChange: c.marginChange,
+    rdIntensity: c.rdIntensity,
+    isTechLike: c.isTechLike,
   };
 }
 
@@ -482,11 +561,16 @@ const COLUMNS = {
   epsQ: ['EPS (last qtr)', (s) => pctCell(s.epsGrowthQ)],
   netMargin: ['Net margin', (s) => `<td>${f.pct(s.netMargin, { sign: false })}</td>`],
   div: ['Dividend', (s) => `<td>${s.dividendYield ? f.pct(s.dividendYield, { sign: false }) : f.DASH}</td>`],
-  sector: ['Sector', (s) => `<td class="muted-cell">${esc(s.sector)}</td>`],
+  sector: ['Industry', (s) => `<td class="muted-cell">${esc(s.sector ?? '')}</td>`],
+  early: ['Early', (s) => `<td>${gradeCell(s.earlyScore ?? null)}</td>`],
+  size: ['Size', (s) => `<td>${s.marketCap != null ? f.money(s.marketCap) : f.DASH}</td>`],
+  accel: ['Growth trend', (s) => `<td class="${f.tone(s.acceleration)}">${s.acceleration != null ? `${s.acceleration >= 0 ? '+' : '−'}${Math.abs(s.acceleration).toFixed(0)} pts` : f.DASH}</td>`],
+  marginChg: ['Margin change', (s) => `<td class="${f.tone(s.marginChange)}">${s.marginChange != null ? `${s.marginChange >= 0 ? '+' : '−'}${Math.abs(s.marginChange).toFixed(1)} pts` : f.DASH}</td>`],
 };
 
 const LAYOUTS = {
   best: ['best', 'score', 'swing', 'price', 'ret13w', 'fromHigh', 'pe', 'revGrowth', 'sector'],
+  early: ['early', 'score', 'swing', 'size', 'revGrowth', 'accel', 'marginChg', 'vsSpx', 'sector'],
   long: ['score', 'value', 'growth', 'quality', 'health', 'pe', 'revGrowth', 'netMargin', 'ret1y', 'div', 'sector'],
   medium: ['score', 'swing', 'peg', 'revQ', 'epsQ', 'revGrowth', 'vsSpx26', 'ret1y', 'sector'],
   swing: ['swing', 'price', 'today', 'ret5d', 'ret13w', 'vsSpx', 'fromHigh', 'volume', 'score', 'sector'],
@@ -518,11 +602,13 @@ export function discoverHTML(view, onList, isNew = () => false) {
   const chartCells = (s) => {
     if (!withCharts) return '';
     const c = charts[s.symbol];
-    if (c === undefined) return '<td class="muted-cell check-cell">Not checked</td><td class="muted-cell">—</td><td class="muted-cell">—</td>';
-    if (c === 'loading') return '<td class="muted-cell"><span class="spinner"></span></td><td></td><td></td>';
-    if (!c) return '<td class="muted-cell">No chart data</td><td></td><td></td>';
+    if (c === undefined) return '<td class="muted-cell check-cell">Not checked</td><td class="muted-cell">—</td><td class="muted-cell">—</td><td class="muted-cell">—</td>';
+    if (c === 'loading') return '<td class="muted-cell"><span class="spinner"></span></td><td></td><td></td><td></td>';
+    if (!c) return '<td class="muted-cell">No chart data</td><td></td><td></td><td></td>';
     const [pass, why] = p.confirm(c);
+    const plan = stopTarget(c);
     return `<td class="check-cell"><span class="check-pill ${pass ? 'pass' : 'fail'}">${pass ? '✓' : '✗'} ${esc(why)}</span></td>
+      <td class="plan-cell">${plan ? `<span class="down">${f.price(plan.stop)}</span> / <span class="up">${f.price(plan.target)}</span>` : f.DASH}</td>
       <td>${c.rsi.value != null ? c.rsi.value.toFixed(0) : f.DASH}</td>
       <td class="${c.trend.tone}">${esc(c.trend.label)}</td>`;
   };
@@ -535,7 +621,7 @@ export function discoverHTML(view, onList, isNew = () => false) {
       <th scope="row" class="sticky">
         <span class="row-top"><span class="cmp-ticker">${esc(s.symbol)}</span>${isNew(s.symbol) ? '<span class="new-badge">New</span>' : ''}${mark}</span>
         <span class="help">${esc(s.name)}</span>
-        ${why.length ? `<span class="why">${why.map(esc).join(' · ')}</span>` : ''}
+        ${why.length ? `<span class="why">${why.map((w) => (w.startsWith('⚠') ? `<span class="why-warn">${esc(w)}</span>` : esc(w))).join(' · ')}</span>` : ''}
       </th>
       ${COLUMNS[cols[0]][1](s)}
       ${chartCells(s)}
@@ -543,7 +629,7 @@ export function discoverHTML(view, onList, isNew = () => false) {
     </tr>`;
   }).join('');
   // The chart check sits right after the score, where you can see it without scrolling
-  const heads = ['Stock', COLUMNS[cols[0]][0], ...(withCharts ? ['Chart check', 'RSI', 'Chart trend'] : []), ...cols.slice(1).map((c) => COLUMNS[c][0])];
+  const heads = ['Stock', COLUMNS[cols[0]][0], ...(withCharts ? ['Chart check', 'Stop / Target', 'RSI', 'Chart trend'] : []), ...cols.slice(1).map((c) => COLUMNS[c][0])];
   const top = shown.slice(0, 8).map((s) => s.symbol);
   const checking = top.some((t) => charts[t] === 'loading');
   const chartButton = p.confirm && shown.length
@@ -576,6 +662,7 @@ export function discoverHTML(view, onList, isNew = () => false) {
       ${p.group === 'swing' ? '<p class="muted-line warn-line">Swing trading is the riskiest way to use this app. Most short-term traders do worse than simply holding an index fund. Keep positions small and always set a stop (Journal tab → How much should I buy?).</p>' : ''}
     </div>
     <div class="screen-filters">
+      <button type="button" class="chip tech-chip${view.techOnly ? ' on' : ''}" data-action="tech-only" aria-pressed="${Boolean(view.techOnly)}">Tech only</button>
       <label class="sort-pick"><span>Industry</span><select data-filter="sector">${sectors}</select></label>
       <label class="sort-pick"><span>Size</span><select data-filter="size">${sizes}</select></label>
       <label class="sort-pick"><span>Max P/E</span><input data-filter="maxPe" inputmode="decimal" placeholder="Any" value="${view.maxPe ?? ''}" size="4"></label>
@@ -591,7 +678,10 @@ export function discoverHTML(view, onList, isNew = () => false) {
         </table></div>
       </div>
       ${results.length > LIMIT && !view.showAll ? `<button type="button" class="text-btn show-all" data-action="show-all">Show all ${results.length}</button>` : ''}
-      <div class="chart-check">${chartButton}</div>` : '<div class="card-plain empty-card"><p class="empty-title">No matches right now</p><p class="muted-line">Markets change daily. Try another screen, clear the filters, or check back tomorrow.</p></div>') : ''}
+      <div class="chart-check">${chartButton}
+        <button type="button" class="text-btn small" data-action="research-top" data-tickers="${shown.slice(0, 5).map((x) => x.symbol).join(',')}">Research the top ${Math.min(5, shown.length)} with AI</button>
+        <p class="muted-line" data-research-msg></p>
+      </div>` : '<div class="card-plain empty-card"><p class="empty-title">No matches right now</p><p class="muted-line">Markets change daily. Try another screen, clear the filters, or check back tomorrow.</p></div>') : ''}
     <p class="fineprint">Covers US companies that file annual reports with the SEC; foreign companies and OTC penny stocks aren't included. <strong>Long-term score</strong>: the business (value, growth, profitability, financial health) using the same rules as the app score, without the chart, DCF and analyst parts. <strong>Swing score</strong>: the price trend (6-month return, strength vs. the S&P 500, distance from the 52-week high, volume). A screen is a starting point for research, not a buy list.</p>`;
 }
 
@@ -607,7 +697,6 @@ function demoStocks() {
     const revenueGrowth = r(4, -8, 40);
     return {
       symbol, name, sector,
-      marketCap: r(1, 5e10, 3e12),
       pe: r(2, 8, 60), ps: r(3, 1, 20),
       revenueGrowth, epsGrowth: r(5, -20, 60), revenueGrowth5y: r(6, -2, 30),
       grossMargin: r(7, 20, 80), operatingMargin: r(8, 2, 45), netMargin: r(9, -2, 35), roe: r(10, 2, 60),
@@ -618,6 +707,10 @@ function demoStocks() {
       vsSpx4w: r(22, -10, 12), vsSpx13w: r(23, -20, 25), vsSpx26w: r(24, -25, 35),
       fromHigh: -r(25, 0, 45), volumeRatio: r(26, 0.6, 2.4),
       epsGrowth5y: r(27, -5, 35), revenueGrowthQ: revenueGrowth + r(28, -8, 12), epsGrowthQ: r(29, -30, 70),
+      acceleration: r(30, -15, 20), turnedProfitable: rand(symbol, 31) > 0.85, marginChange: r(32, -6, 10),
+      rdIntensity: sector === 'Tech' ? r(33, 8, 30) : r(33, 0, 6), earlyScore: Math.round(r(34, 25, 90)),
+      marketCap: 10 ** r(35, 8.7, 12.3), // spread from ~$500M to ~$2T
+      nextEarnings: rand(symbol, 36) > 0.8 ? new Date(Date.now() + Math.floor(r(37, 1, 20)) * 86_400_000).toISOString().slice(0, 10) : null,
     };
   });
 }

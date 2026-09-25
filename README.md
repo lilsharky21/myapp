@@ -14,6 +14,8 @@ Investors and News.
 - **Sync**: the same watchlist and journal on your Mac and iPhone (through Blob storage in your own Vercel account), plus Export / Import backups.
 - **Discover**: scans **every NYSE and Nasdaq company's latest annual report** (free SEC data, one request per number for the whole market), keeps the ~120 strongest businesses and fastest growers, then checks their price, valuation and trend. Popular names only appear if their numbers earn it. Each result shows *why it's here*, a **+** to add it, and a **New** badge when it's just entered a screen. Filter by industry, size (large / mid / small) and P/E. Every stock gets a **Long-term score** (the business) and a **Swing score** (the price trend):
   - *Best overall*: Best right now · Great business, rising price
+  - *Early finds*: Hidden gems · Just turned profitable · Growth speeding up · Money moving in early · Rising tech (from the SEC scan's early-stage pool: smaller companies whose growth is accelerating, turning profitable or reinvesting heavily in R&D)
+  - **Tech only** filters any screen; swing results warn when earnings are close and the chart check suggests a stop and a 2:1 target; **Research the top 5 with AI** sends them to your Mac
   - *Long term*: Top long-term score · Quality at a fair price · Compounders · Fast growers · Cheap vs. profits · Strong balance sheet · Dividend payers
   - *Months*: Growth at a reasonable price · Growth speeding up · Turnarounds · Steady winners
   - *Swing (days–weeks)*: Pullback in an uptrend · Near a breakout · Momentum leaders · Oversold bounce · Unusual volume, with a **chart check** that confirms each setup with RSI and moving averages

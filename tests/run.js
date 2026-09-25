@@ -1093,15 +1093,17 @@ await test('Scans every listed company and keeps the best businesses (popular or
     [5, 'JUNE YEAR INC', 'JUNE', 'NYSE'],          // fiscal year lands in the earlier calendar year
     [6, 'TINY INC', 'TINY', 'Nasdaq'],             // under $250M revenue
     [7, 'CLASS SHARES', 'BRK-B', 'NYSE'],
+    [8, 'GEM SOFTWARE INC', 'GEMS', 'Nasdaq'],    // small, growth speeding up, just turned profitable, R&D heavy
     ...Array.from({ length: 60 }, (_, i) => [100 + i, `FILLER ${i}`, `F${i}`, 'NYSE']),
   ] };
   const filler = (v) => Object.fromEntries(Array.from({ length: 60 }, (_, i) => [100 + i, v]));
   const rev = {
-    2025: { 1: 800e6, 2: 100e9, 3: 900e6, 4: 350e9, 6: 100e6, 7: 400e9, 999: 1, ...filler(1e9) },
-    2024: { 1: 500e6, 2: 105e9, 3: 500e6, 4: 300e9, 5: 2e9, 6: 80e6, 7: 380e9, ...filler(0.95e9) },
-    2023: { 1: 400e6, 2: 100e9, 4: 280e9, 5: 1.6e9, 7: 360e9, ...filler(0.9e9) },
+    2025: { 1: 800e6, 2: 100e9, 3: 900e6, 4: 350e9, 6: 100e6, 7: 400e9, 8: 400e6, 999: 1, ...filler(1e9) },
+    2024: { 1: 500e6, 2: 105e9, 3: 500e6, 4: 300e9, 5: 2e9, 6: 80e6, 7: 380e9, 8: 250e6, ...filler(0.95e9) },
+    2023: { 1: 400e6, 2: 100e9, 4: 280e9, 5: 1.6e9, 7: 360e9, 8: 200e6, ...filler(0.9e9) },
   };
-  const ni = { 2025: { 1: 170e6, 2: 2e9, 3: 300e6, 4: 100e9, 7: 90e9, ...filler(0.08e9) }, 2024: { 5: 500e6, ...filler(0.07e9) } };
+  const ni = { 2025: { 1: 170e6, 2: 2e9, 3: 300e6, 4: 100e9, 7: 90e9, 8: 30e6, ...filler(0.08e9) }, 2024: { 5: 500e6, 8: -20e6, ...filler(0.07e9) } };
+  const rd = { 2025: { 8: 80e6, 4: 50e9 } };
   const cash = { 2025: { 1: 220e6, 2: 5e9, 4: 120e9, 7: 30e9, ...filler(0.1e9) }, 2024: { 5: 600e6 } };
   const eq = { 2025: { 1: 600e6, 2: 50e9, 4: 300e9, 7: 600e9, ...filler(1e9) }, 2024: { 5: 2e9 } };
   const assets = { 2025: { 1: 900e6, 2: 400e9, 4: 450e9, 7: 1100e9, ...filler(2e9) }, 2024: { 5: 3e9 } };
@@ -1115,6 +1117,7 @@ await test('Scans every listed company and keeps the best businesses (popular or
     samples[`${base}StockholdersEquity/USD/CY${y}Q4I.json`] = frame(eq[y] ?? {});
     samples[`${base}Assets/USD/CY${y}Q4I.json`] = frame(assets[y] ?? {});
     samples[`${base}Liabilities/USD/CY${y}Q4I.json`] = frame(liab[y] ?? {});
+    samples[`${base}ResearchAndDevelopmentExpense/USD/CY${y}.json`] = frame(rd[y] ?? {});
   }
   const res = await call('candidates', '');
   assert.equal(res.status, 200);
@@ -1130,6 +1133,15 @@ await test('Scans every listed company and keeps the best businesses (popular or
   const acme = res.body.candidates.find((c) => c.symbol === 'ACME');
   close(acme.revenueGrowthSec, 60);
   close(acme.netMarginSec, 21.25);
+  // The early gem: growth 60% vs 25% the year before, back in profit, 20% of sales on R&D
+  const gem = res.body.candidates.find((c) => c.symbol === 'GEMS');
+  assert.ok(gem, 'early gem found');
+  close(gem.acceleration, 60 - 25);
+  assert.equal(gem.turnedProfitable, true);
+  close(gem.rdIntensity, 20);
+  assert.equal(gem.isTechLike, true);
+  const big = res.body.candidates.find((c) => c.symbol === 'BIG');
+  assert.ok(gem.earlyScore > (big?.earlyScore ?? 0), 'small accelerating company scores higher on early signals');
   assert.equal(res.cache.includes('s-maxage=86400'), true);
 });
 
@@ -1150,11 +1162,43 @@ await test('"Why it\'s here" picks each stock\'s strongest facts for the time fr
   const { reasonsFor, runScreen } = await import('../js/screen.js');
   const s = { revenueGrowth: 34, netMargin: 21, pe: 12, vsSpx13w: 9, fromHigh: -1, volumeRatio: 1.8, return5d: 2, return6m: 30, dividendYield: 3.4 };
   assert.deepEqual(reasonsFor(s, 'long'), ['Sales +34%', '21% profit margin', 'P/E 12']);
-  assert.deepEqual(reasonsFor(s, 'swing'), ['At its 52-week high', 'Beating the S&P by 9 pts (3 mo)', 'Volume 1.8× usual']);
+  assert.deepEqual(reasonsFor(s, 'swing'), ['At its 52-week high', '+9 pts vs S&P (3 mo)', 'Volume 1.8× usual']);
   assert.deepEqual(reasonsFor({}, 'long'), []);
   const stocks = [{ symbol: 'BIG', marketCap: 50e9 }, { symbol: 'MID', marketCap: 5e9 }, { symbol: 'SML', marketCap: 800e6 }];
   assert.deepEqual(runScreen(stocks, { preset: 'top', size: 'small' }).map((x) => x.symbol), ['SML']);
   assert.deepEqual(runScreen(stocks, { preset: 'top', size: 'mid' }).map((x) => x.symbol), ['MID']);
+});
+
+await test('Early finds, Tech only, swing stop/target and earnings warnings', async () => {
+  const { isTech, stopTarget, daysToEarnings, runScreen, reasonsFor } = await import('../js/screen.js');
+  assert.equal(isTech({ sector: 'Semiconductors' }), true);
+  assert.equal(isTech({ sector: 'Biotechnology', rdIntensity: 40 }), false); // R&D-heavy, but a drug maker
+  assert.equal(isTech({ rdIntensity: 15 }), true);
+  assert.equal(isTech({ sector: 'Banking', rdIntensity: 1 }), false);
+  const plan = stopTarget({ last: 100, atr: { value: 4 } });
+  close(plan.stop, 94);
+  close(plan.target, 112);
+  close(plan.riskPct, 6);
+  assert.equal(stopTarget({ last: 100, atr: {} }), null);
+  const inDays = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  assert.equal(daysToEarnings({ nextEarnings: inDays(3) }), 3);
+  assert.equal(daysToEarnings({}), null);
+  assert.equal(reasonsFor({ nextEarnings: inDays(2), revenueGrowth: 30 }, 'long')[0], '⚠ Earnings in 2 days');
+  assert.deepEqual(reasonsFor({ acceleration: 12, turnedProfitable: true, revenueGrowth: 40 }, 'early'),
+    ['Growth speeding up (+12 pts)', 'Just turned profitable', 'Sales +40%']);
+  // Swing screens put stocks reporting within a week last
+  const mom = { vsSpx4w: 5, vsSpx13w: 10 };
+  const swing = runScreen([
+    { ...mom, symbol: 'SOON', vsSpx13w: 20, nextEarnings: inDays(2) },
+    { ...mom, symbol: 'CALM' },
+  ], { preset: 'momentum' });
+  assert.deepEqual(swing.map((x) => x.symbol), ['CALM', 'SOON']);
+  // Hidden gems and Tech only
+  const gem = { symbol: 'GEM', marketCap: 3e9, revenueGrowth: 45, earlyScore: 80, sector: 'Software' };
+  const bio = { symbol: 'BIO', marketCap: 3e9, revenueGrowth: 45, earlyScore: 85, sector: 'Biotechnology', rdIntensity: 50 };
+  const huge = { symbol: 'HUGE', marketCap: 900e9, revenueGrowth: 45, earlyScore: 90, sector: 'Software' };
+  assert.deepEqual(runScreen([gem, bio, huge], { preset: 'gems' }).map((x) => x.symbol), ['BIO', 'GEM']);
+  assert.deepEqual(runScreen([gem, bio, huge], { preset: 'gems', techOnly: true }).map((x) => x.symbol), ['GEM']);
 });
 
 // ---------------------------------------------------------------------------

@@ -69,7 +69,7 @@ function readPrefs() {
   try { return JSON.parse(localStorage.getItem(PREFS)) ?? {}; } catch { return {}; }
 }
 function savePrefs() {
-  try { localStorage.setItem(PREFS, JSON.stringify({ sort: state.sort, mode: state.mode, today: $('#today-card').open })); } catch { /* blocked */ }
+  try { localStorage.setItem(PREFS, JSON.stringify({ ...readPrefs(), sort: state.sort, mode: state.mode, today: $('#today-card').open })); } catch { /* blocked */ }
 }
 
 // ---------- Drawing the list ----------
@@ -849,7 +849,7 @@ window.addEventListener('popstate', (event) => {
 function openDiscover() {
   stopCompare();
   state.listScroll = window.scrollY;
-  state.discover ??= { preset: 'best', sector: '', maxPe: null, stocks: null, loaded: 0, total: 0, scroll: 0, charts: {} };
+  state.discover ??= { preset: 'best', sector: '', maxPe: null, stocks: null, loaded: 0, total: 0, scroll: 0, charts: {}, techOnly: readPrefs().techOnly ?? false };
   withTransition(() => {
     $('#list-view').hidden = true;
     $('#discover-view').hidden = false;
@@ -946,6 +946,25 @@ $('#discover-view').addEventListener('click', (event) => {
     return startScreen();
   }
   if (event.target.closest('[data-action="show-all"]')) { d.showAll = true; return renderDiscover(); }
+  // Tech only: filters every screen, remembered on this device
+  if (event.target.closest('[data-action="tech-only"]')) {
+    d.techOnly = !d.techOnly;
+    d.showAll = false;
+    try { localStorage.setItem(PREFS, JSON.stringify({ ...readPrefs(), techOnly: d.techOnly })); } catch { /* blocked */ }
+    return renderDiscover();
+  }
+  // Ask the Mac's AI to research the top results (they show up on every device)
+  const research = event.target.closest('[data-action="research-top"]');
+  if (research) {
+    const tickers = research.dataset.tickers.split(',').filter(Boolean);
+    research.disabled = true;
+    requestNote(tickers).then((r) => {
+      const msg = document.querySelector('#discover-view [data-research-msg]');
+      if (msg) msg.textContent = r.ok ? `Asked your Mac to research ${tickers.join(', ')}. Notes appear on each stock's Research tab as they're written (about a minute each while the Mac is awake).` : r.message;
+      research.disabled = false;
+    });
+    return;
+  }
   // "+" on a result: straight onto the watchlist, at today's price
   const add = event.target.closest('[data-add]');
   if (add) {

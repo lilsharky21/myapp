@@ -2116,7 +2116,7 @@ kbd {
 /* ---------- Discover: time frames and chart check ---------- */
 
 .segmented.horizons { margin-top: 18px; }
-.segmented.horizons button { padding: 0 4px; font-size: 13px; }
+.segmented.horizons button { min-width: 0; padding: 0 2px; overflow: hidden; font-size: 13px; text-overflow: ellipsis; }
 .horizon-about { margin: 8px 4px 0; }
 .preset-check { margin: 10px 0 0 !important; padding-top: 10px; border-top: 1px solid var(--hairline); font-size: 14px !important; color: var(--text-2); }
 .preset-about .warn-line { margin-top: 8px; }
@@ -2148,6 +2148,11 @@ kbd {
   color: var(--accent);
 }
 .screen-table .on-list { margin-left: auto; }
+
+.tech-chip { min-height: 30px; padding: 0 12px; font-size: 13px; }
+.tech-chip.on { background: var(--accent); border-color: transparent; color: #fff; }
+.why-warn { color: var(--chart-orange); }
+.fin-table td.plan-cell { font-weight: 600; white-space: nowrap; }
 
 /* ---------- Ask my Mac (phone) ---------- */
 

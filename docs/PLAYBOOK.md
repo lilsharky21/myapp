@@ -32,6 +32,26 @@ Discover / search  →  Watchlist  →  Full research  →  Decide & size  →  
 - Keep the watchlist to about **10–15 stocks**. More than that and you stop
   following them properly.
 
+### Finding stocks early
+
+- **Discover → Early** looks for companies before they're famous: smaller ones whose
+  growth is **speeding up**, that **just turned profitable**, or where **money is
+  starting to move in**. Tap **Tech only** to stick to tech.
+- Early finds swing harder and fail more often than big, proven companies. Treat
+  them as a small slice of your money, and use the position sizer every time.
+- The best early finds show up in more than one screen (for example Hidden gems
+  and Money moving in early). That's a stronger signal than one screen alone.
+
+### Swing routine (if you swing trade)
+
+1. **Discover → Swing** (with **Tech only** if you like), pick a screen, tap
+   **Check the charts**. Only look at the ✓ rows.
+2. Skip anything with **⚠ Earnings** in the next week: a report can move the price
+   10%+ overnight either way.
+3. Use the suggested **stop / target** (about 2:1) as your starting plan, and put
+   the stop into **How much should I buy?** to size the trade.
+4. Set price alerts at the stop and the target, and log the trade.
+
 ## 2. Research one stock properly (~20 minutes each)
 
 Go through the tabs in this order:
